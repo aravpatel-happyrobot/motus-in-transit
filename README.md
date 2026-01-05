@@ -163,7 +163,31 @@ The Railway app runs 24/7 and waits for the external cron to trigger it.
 | `CALL_HOURS_MIN` | Minimum hours before delivery | 3 |
 | `CALL_HOURS_MAX` | Maximum hours before delivery | 4 |
 | `REDIS_TTL_DAYS` | Days to remember calls | 2 |
+| `ALLOWED_OWNERS` | Filter by owner names (comma-separated) | "" (all owners) |
+| `ALLOWED_OWNER_IDS` | Filter by owner IDs (comma-separated) | "" (all owners) |
 | `TURVO_BASE_URL` | Turvo API base URL | https://publicapi.turvo.com/v1 |
+
+### Owner Filtering
+
+Control which shipments trigger calls based on who owns them in Motus:
+
+**Option 1: By Name** (easier to read)
+```bash
+ALLOWED_OWNERS=Kyle Patton,Rick Straus,Barrett Roush
+```
+
+**Option 2: By ID** (more reliable, names can change)
+```bash
+ALLOWED_OWNER_IDS=201288,5564,411996
+```
+
+**Disable filtering** (allow all owners):
+```bash
+ALLOWED_OWNERS=
+ALLOWED_OWNER_IDS=
+```
+
+You can change this anytime in Railway → Variables without code changes.
 
 ## Documentation
 

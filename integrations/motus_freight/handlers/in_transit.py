@@ -22,6 +22,10 @@ CALL_HOURS_MIN = float(os.getenv("CALL_HOURS_MIN", "3"))  # Default: 3 hours
 CALL_HOURS_MAX = float(os.getenv("CALL_HOURS_MAX", "4"))  # Default: 4 hours
 REDIS_TTL_DAYS = int(os.getenv("REDIS_TTL_DAYS", "2"))  # Default: 2 days
 
+# Owner filtering (optional - leave empty to allow all owners)
+ALLOWED_OWNERS = os.getenv("ALLOWED_OWNERS", "")  # Comma-separated names, e.g., "Kyle Patton,Rick Straus"
+ALLOWED_OWNER_IDS = os.getenv("ALLOWED_OWNER_IDS", "")  # Comma-separated IDs, e.g., "201288,5564"
+
 # Redis client for deduplication
 redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
 
@@ -65,6 +69,50 @@ def mark_as_called(shipment_id: int, load_number: str):
     redis_client.set(cache_key, json.dumps(cache_data), ex=ttl_seconds)
 
     print(f"✓ Marked {load_number} as called (TTL: {REDIS_TTL_DAYS} days)")
+
+
+def check_owner_allowed(shipment: Dict[str, Any]) -> tuple[bool, str]:
+    """
+    Check if shipment owner is in allowed list (if filtering is enabled)
+
+    Args:
+        shipment: Full shipment details
+
+    Returns:
+        tuple: (is_allowed, owner_name)
+    """
+    # If no filtering configured, allow all
+    if not ALLOWED_OWNERS and not ALLOWED_OWNER_IDS:
+        return True, "All owners allowed"
+
+    # Extract owner info
+    customer_orders = shipment.get("customerOrder", [])
+    for customer_order in customer_orders:
+        if customer_order.get("deleted"):
+            continue
+
+        customer = customer_order.get("customer", {})
+        owner = customer.get("owner", {})
+        owner_name = owner.get("name", "")
+        owner_id = str(owner.get("id", ""))
+
+        # Check against allowed names
+        if ALLOWED_OWNERS:
+            allowed_names = [name.strip() for name in ALLOWED_OWNERS.split(",")]
+            if owner_name in allowed_names:
+                return True, owner_name
+
+        # Check against allowed IDs
+        if ALLOWED_OWNER_IDS:
+            allowed_ids = [id.strip() for id in ALLOWED_OWNER_IDS.split(",")]
+            if owner_id in allowed_ids:
+                return True, f"{owner_name} (ID: {owner_id})"
+
+        # Found owner but not in allowed list
+        return False, f"{owner_name} (ID: {owner_id})"
+
+    # No owner found
+    return False, "No owner"
 
 
 def send_webhook(payload: Dict[str, Any]) -> bool:
@@ -116,6 +164,15 @@ def sync_in_transit() -> Dict[str, Any]:
     print("MOTUS IN-TRANSIT SYNC")
     print(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
     print(f"Call window: {CALL_HOURS_MIN}-{CALL_HOURS_MAX} hours until delivery")
+
+    # Show owner filtering status
+    if ALLOWED_OWNERS:
+        print(f"Owner filter: {ALLOWED_OWNERS} (by name)")
+    elif ALLOWED_OWNER_IDS:
+        print(f"Owner filter: {ALLOWED_OWNER_IDS} (by ID)")
+    else:
+        print(f"Owner filter: DISABLED (all owners allowed)")
+
     print("="*80)
 
     # Step 1: Get ALL En Route shipments (status 2105) across all pages
@@ -172,6 +229,7 @@ def sync_in_transit() -> Dict[str, Any]:
     calls_to_make = []  # Collect all payloads to send in one batch
     already_called_count = 0
     skipped_count = 0
+    owner_filtered_count = 0
     errors = []
 
     for i, shipment in enumerate(shipments, 1):
@@ -192,6 +250,13 @@ def sync_in_transit() -> Dict[str, Any]:
         except Exception as e:
             print(f"  ✗ Failed to get details: {e}")
             errors.append({"load": custom_id, "error": str(e)})
+            continue
+
+        # Check owner filtering
+        is_allowed, owner_info = check_owner_allowed(details)
+        if not is_allowed:
+            print(f"  ○ Owner not in allowed list: {owner_info}, skipping")
+            owner_filtered_count += 1
             continue
 
         # Transform to webhook payload
@@ -257,6 +322,7 @@ def sync_in_transit() -> Dict[str, Any]:
     print("="*80)
     print(f"Total shipments: {len(shipments)}")
     print(f"Already called: {already_called_count}")
+    print(f"Owner filtered: {owner_filtered_count}")
     print(f"Skipped (not in threshold or missing data): {skipped_count}")
     print(f"Calls triggered: {len(calls_to_make)}")
 
@@ -271,6 +337,7 @@ def sync_in_transit() -> Dict[str, Any]:
         "shipments_total": len(shipments),
         "shipments_processed": len(shipments),
         "already_called": already_called_count,
+        "owner_filtered": owner_filtered_count,
         "skipped": skipped_count,
         "calls_made": len(calls_to_make),
         "errors": errors
