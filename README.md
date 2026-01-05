@@ -4,7 +4,7 @@ Automated driver check-in calls for Motus Freight using Turvo TMS integration.
 
 ## Overview
 
-This system polls the Turvo API every 15 minutes to find loads that are within 4 hours of delivery and triggers automated calls to drivers for real-time ETA updates.
+This system polls the Turvo API every 30 minutes (after hours only) to find loads that are 3-4 hours from delivery and triggers automated calls to drivers for real-time ETA updates.
 
 ## Features
 
@@ -35,8 +35,9 @@ REDIS_URL=redis://...
 MOTUS_IN_TRANSIT_WEBHOOK_URL=https://workflows.platform.happyrobot.ai/hooks/...
 
 # Optional
-CALL_HOURS_THRESHOLD=4    # Hours before delivery to call
-REDIS_TTL_DAYS=30        # Days to remember calls
+CALL_HOURS_MIN=3         # Minimum hours before delivery
+CALL_HOURS_MAX=4         # Maximum hours before delivery
+REDIS_TTL_DAYS=2         # Days to remember calls
 ```
 
 ### 3. Run Locally
@@ -57,13 +58,13 @@ python test_integration.py
 ## How It Works
 
 ```
-Every 15 minutes:
-  1. Query Turvo for all "En Route" shipments
-  2. Get full details (ETA, driver phone, equipment)
-  3. Filter: Keep only loads ≤ 4 hours from delivery
-  4. Check Redis: Skip if already called
-  5. Send webhook to HappyRobot → Trigger call
-  6. Mark in Redis (no repeats)
+Every 30 minutes (after hours only):
+  1. Query Turvo for all "En Route" shipments (with pagination)
+  2. Get full details for each (ETA, driver phone, equipment)
+  3. Filter: Keep only loads 3-4 hours from delivery
+  4. Check Redis: Skip if already called (2-day TTL)
+  5. Send batch webhook to HappyRobot → Trigger calls
+  6. Mark all as called in Redis (no repeats)
 ```
 
 ## Webhook Payload
@@ -137,13 +138,17 @@ motus-in-transit/
 4. Set environment variables
 5. Deploy
 
-### Cron Setup
+### Cron Setup (External)
 
-Schedule the sync endpoint:
+Use an external cron service (e.g., cron-job.org, EasyCron) to trigger the sync endpoint every 30 minutes during after-hours:
 
-```bash
-*/15 * * * * curl -X POST https://your-app.railway.app/sync-in-transit
-```
+**Endpoint:** `POST https://your-app.railway.app/sync-in-transit`
+
+**Schedule Examples:**
+- Every 30 minutes: `*/30 * * * *`
+- After hours only (6 PM - 6 AM): `*/30 18-23,0-5 * * *`
+
+The Railway app runs 24/7 and waits for the external cron to trigger it.
 
 ## API Endpoints
 
@@ -155,8 +160,9 @@ Schedule the sync endpoint:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CALL_HOURS_THRESHOLD` | Hours before delivery to call | 4 |
-| `REDIS_TTL_DAYS` | Days to remember calls | 30 |
+| `CALL_HOURS_MIN` | Minimum hours before delivery | 3 |
+| `CALL_HOURS_MAX` | Maximum hours before delivery | 4 |
+| `REDIS_TTL_DAYS` | Days to remember calls | 2 |
 | `TURVO_BASE_URL` | Turvo API base URL | https://publicapi.turvo.com/v1 |
 
 ## Documentation

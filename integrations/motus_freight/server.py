@@ -46,14 +46,14 @@ async def sync_in_transit_endpoint():
     In-Transit Sync Endpoint
 
     Polls Turvo for En Route shipments and triggers calls
-    for loads within 4 hours of delivery
+    for loads 3-4 hours from delivery
 
     Called by:
-    - Cron job (every 15-30 minutes)
+    - External cron job (every 30 minutes, after hours only)
     - Manual trigger
 
     Returns:
-        dict: Execution summary
+        dict: Execution summary with calls triggered
     """
     try:
         result = in_transit.sync_in_transit()
