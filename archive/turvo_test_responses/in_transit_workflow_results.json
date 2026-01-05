@@ -1,0 +1,108 @@
+{
+  "timestamp": "2026-01-02T22:33:19.792627+00:00",
+  "total_en_route": 24,
+  "processed": 10,
+  "calls_needed": 5,
+  "results": [
+    {
+      "custom_id": "M290389",
+      "shipment_id": 111436810,
+      "hours_until_delivery": 4.5,
+      "eta_formatted": "Jan 2, 22:03 EST",
+      "miles_remaining": 252,
+      "delivery_location": "Chelsea, MA",
+      "driver_phone": "9296079933",
+      "should_call": false
+    },
+    {
+      "custom_id": "M290245",
+      "shipment_id": 111419302,
+      "hours_until_delivery": 9.7,
+      "eta_formatted": "Jan 3, 3:15 EST",
+      "miles_remaining": 544,
+      "delivery_location": "Norcross, GA",
+      "driver_phone": "2058002995",
+      "should_call": false
+    },
+    {
+      "custom_id": "M290897",
+      "shipment_id": 111528809,
+      "hours_until_delivery": 0.0,
+      "eta_formatted": " 16:35 CST",
+      "miles_remaining": 12,
+      "delivery_location": "Oklahoma City, OK",
+      "driver_phone": "2092898301",
+      "should_call": true
+    },
+    {
+      "custom_id": "M290708",
+      "shipment_id": 111494633,
+      "hours_until_delivery": 2.7,
+      "eta_formatted": "Jan 2, 20:12 EST",
+      "miles_remaining": 184,
+      "delivery_location": "Romulus, MI",
+      "driver_phone": "4193049545",
+      "should_call": true
+    },
+    {
+      "custom_id": "M291062",
+      "shipment_id": 111551709,
+      "hours_until_delivery": 3.6,
+      "eta_formatted": "Jan 2, 21:09 EST",
+      "miles_remaining": 243,
+      "delivery_location": "Morristown, TN",
+      "driver_phone": "3317015554",
+      "should_call": true
+    },
+    {
+      "custom_id": "M286145",
+      "shipment_id": 110598382,
+      "hours_until_delivery": 48.0,
+      "eta_formatted": "Jan 4, 14:33 PST",
+      "miles_remaining": 1103,
+      "delivery_location": "CLACKAMAS, OR",
+      "driver_phone": "9154944848",
+      "should_call": false
+    },
+    {
+      "custom_id": "M290870",
+      "shipment_id": 111525143,
+      "hours_until_delivery": 32.3,
+      "eta_formatted": "Jan 4, 1:50 EST",
+      "miles_remaining": 1012,
+      "delivery_location": "Jacksonville, FL",
+      "driver_phone": "9048327205",
+      "should_call": false
+    },
+    {
+      "custom_id": "M291177",
+      "shipment_id": 111579584,
+      "hours_until_delivery": 3.1,
+      "eta_formatted": "Jan 2, 19:38 CST",
+      "miles_remaining": 17,
+      "delivery_location": "BATAVIA, IL",
+      "driver_phone": "7732099634",
+      "should_call": true
+    },
+    {
+      "custom_id": "M291033",
+      "shipment_id": 111548916,
+      "hours_until_delivery": 1.6,
+      "eta_formatted": "Jan 2, 19:06 EST",
+      "miles_remaining": 97,
+      "delivery_location": "New Oxford, PA",
+      "driver_phone": "2106688527",
+      "should_call": true
+    },
+    {
+      "custom_id": "M291171",
+      "shipment_id": 111579060,
+      "hours_until_delivery": 105.2,
+      "eta_formatted": "Jan 7, 2:44 EST",
+      "miles_remaining": 2603,
+      "delivery_location": "Bensalem, PA",
+      "driver_phone": "9293591123",
+      "should_call": false
+    }
+  ]
+}

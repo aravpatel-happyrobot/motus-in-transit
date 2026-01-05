@@ -1,0 +1,378 @@
+{
+  "Status": "SUCCESS",
+  "details": {
+    "pagination": {
+      "start": 10,
+      "pageSize": 10,
+      "totalRecordsInPage": 10,
+      "moreAvailable": true,
+      "lastObjectKey": null
+    },
+    "shipments": [
+      {
+        "id": 111537234,
+        "customId": "M290969",
+        "lastUpdatedOn": "2026-01-02T22:24:31.466Z",
+        "updated": "2026-01-02T22:24:31.466Z",
+        "createdDate": "2025-12-30T18:13:47Z",
+        "created": "2025-12-30T18:13:47Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109955223,
+            "deleted": false,
+            "customer": {
+              "id": 7648561,
+              "name": "Kaiser Aluminum Bellwood Corporation"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106841628,
+            "deleted": true,
+            "carrier": {
+              "name": "TRIUMPH LOGISTICS INC",
+              "id": 6007435
+            }
+          },
+          {
+            "id": 106842415,
+            "deleted": false,
+            "carrier": {
+              "name": "Gns Trucking Inc",
+              "id": 247689
+            }
+          }
+        ]
+      },
+      {
+        "id": 111527845,
+        "customId": "M290893",
+        "lastUpdatedOn": "2026-01-02T22:24:25.867Z",
+        "updated": "2026-01-02T22:24:25.867Z",
+        "createdDate": "2025-12-30T16:20:37Z",
+        "created": "2025-12-30T16:20:37Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109944465,
+            "deleted": false,
+            "customer": {
+              "id": 4598983,
+              "name": "Kaiser Aluminum Fabricated Products LLC"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106766734,
+            "deleted": false,
+            "carrier": {
+              "name": "Trans Pacificc LLC",
+              "id": 4278327
+            }
+          }
+        ]
+      },
+      {
+        "id": 111592134,
+        "customId": "M291221",
+        "lastUpdatedOn": "2026-01-02T22:24:18.679Z",
+        "updated": "2026-01-02T22:24:18.679Z",
+        "createdDate": "2025-12-31T18:42:36Z",
+        "created": "2025-12-31T18:42:36Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 110017753,
+            "deleted": false,
+            "customer": {
+              "id": 3493666,
+              "name": "Koch Foods (Cumming)"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106865550,
+            "deleted": false,
+            "carrier": {
+              "name": "U S Freight Lines Inc",
+              "id": 157863
+            }
+          }
+        ]
+      },
+      {
+        "id": 111546772,
+        "customId": "M291005",
+        "lastUpdatedOn": "2026-01-02T22:23:57.675Z",
+        "updated": "2026-01-02T22:23:57.675Z",
+        "createdDate": "2025-12-30T20:19:34Z",
+        "created": "2025-12-30T20:19:34Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109966002,
+            "deleted": false,
+            "customer": {
+              "id": 4453225,
+              "name": "OK Produce"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106792143,
+            "deleted": true,
+            "carrier": {
+              "name": "Bajwa Express Inc",
+              "id": 2452540
+            }
+          },
+          {
+            "id": 106814485,
+            "deleted": false,
+            "carrier": {
+              "name": "Gs Freight Inc",
+              "id": 3319173
+            }
+          }
+        ]
+      },
+      {
+        "id": 111292318,
+        "customId": "M289676",
+        "lastUpdatedOn": "2026-01-02T22:23:54.987Z",
+        "updated": "2026-01-02T22:23:54.987Z",
+        "createdDate": "2025-12-22T18:52:41Z",
+        "created": "2025-12-22T18:52:41Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109672738,
+            "deleted": false,
+            "customer": {
+              "id": 76203,
+              "name": "MISSION PRODUCE INC"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106798666,
+            "deleted": false,
+            "carrier": {
+              "name": "L&K Transport LLC",
+              "id": 425481
+            }
+          }
+        ]
+      },
+      {
+        "id": 111494633,
+        "customId": "M290708",
+        "lastUpdatedOn": "2026-01-02T22:23:32.155Z",
+        "updated": "2026-01-02T22:23:32.155Z",
+        "createdDate": "2025-12-29T19:54:57Z",
+        "created": "2025-12-29T19:54:57Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109904890,
+            "deleted": false,
+            "customer": {
+              "id": 8013345,
+              "name": "Compass Lease (Chicago)"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106758105,
+            "deleted": false,
+            "carrier": {
+              "name": "INTER 24 LLC",
+              "id": 5255339
+            }
+          }
+        ]
+      },
+      {
+        "id": 111492983,
+        "customId": "M290692",
+        "lastUpdatedOn": "2026-01-02T22:23:17.451Z",
+        "updated": "2026-01-02T22:23:17.451Z",
+        "createdDate": "2025-12-29T19:42:12Z",
+        "created": "2025-12-29T19:42:12Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109903070,
+            "deleted": false,
+            "customer": {
+              "id": 2990353,
+              "name": "Koch Foods (Morristown)"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106801603,
+            "deleted": false,
+            "carrier": {
+              "name": "PACOVAN LLC",
+              "id": 6867949
+            }
+          }
+        ]
+      },
+      {
+        "id": 111484893,
+        "customId": "M290638",
+        "lastUpdatedOn": "2026-01-02T22:23:13.432Z",
+        "updated": "2026-01-02T22:23:13.432Z",
+        "createdDate": "2025-12-29T17:54:17Z",
+        "created": "2025-12-29T17:54:17Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109893796,
+            "deleted": false,
+            "customer": {
+              "id": 251166,
+              "name": "Fresh Express, INC"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106763555,
+            "deleted": true,
+            "carrier": {
+              "name": "East Coast Express LLC",
+              "id": 74412
+            }
+          },
+          {
+            "id": 106808971,
+            "deleted": false,
+            "carrier": {
+              "name": "East Coast Express LLC",
+              "id": 74412
+            }
+          }
+        ]
+      },
+      {
+        "id": 110598382,
+        "customId": "M286145",
+        "lastUpdatedOn": "2026-01-02T22:23:12.240Z",
+        "updated": "2026-01-02T22:23:12.240Z",
+        "createdDate": "2025-12-08T21:46:04Z",
+        "created": "2025-12-08T21:46:04Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 108904345,
+            "deleted": false,
+            "customer": {
+              "id": 4691187,
+              "name": "Leprino Foods"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106805870,
+            "deleted": false,
+            "carrier": {
+              "name": "Triple D Supply, Limited Liability Company",
+              "id": 156397
+            }
+          }
+        ]
+      },
+      {
+        "id": 111494407,
+        "customId": "M290706",
+        "lastUpdatedOn": "2026-01-02T22:23:09.847Z",
+        "updated": "2026-01-02T22:23:09.847Z",
+        "createdDate": "2025-12-29T19:53:22Z",
+        "created": "2025-12-29T19:53:22Z",
+        "status": {
+          "code": {
+            "key": "2105",
+            "value": "En route"
+          }
+        },
+        "customerOrder": [
+          {
+            "id": 109904604,
+            "deleted": false,
+            "customer": {
+              "id": 3947527,
+              "name": "Custom Made Meals"
+            }
+          }
+        ],
+        "carrierOrder": [
+          {
+            "id": 106742717,
+            "deleted": false,
+            "carrier": {
+              "name": "Plains Dedicated Express, LLC",
+              "id": 400853
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
