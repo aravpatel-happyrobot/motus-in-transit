@@ -18,9 +18,15 @@ from . import turvo_utils
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL")
 MOTUS_IN_TRANSIT_WEBHOOK_URL = os.getenv("MOTUS_IN_TRANSIT_WEBHOOK_URL")
-CALL_HOURS_MIN = float(os.getenv("CALL_HOURS_MIN", "3"))  # Default: 3 hours
-CALL_HOURS_MAX = float(os.getenv("CALL_HOURS_MAX", "4"))  # Default: 4 hours
 REDIS_TTL_DAYS = int(os.getenv("REDIS_TTL_DAYS", "2"))  # Default: 2 days
+
+# Two-window call system
+# Window 1: Check-in call (3-4 hours before delivery)
+CALL_WINDOW_1_MIN = float(os.getenv("CALL_WINDOW_1_MIN", "3"))
+CALL_WINDOW_1_MAX = float(os.getenv("CALL_WINDOW_1_MAX", "4"))
+# Window 2: Final call (0-30 minutes before delivery)
+CALL_WINDOW_2_MIN = float(os.getenv("CALL_WINDOW_2_MIN", "0"))
+CALL_WINDOW_2_MAX = float(os.getenv("CALL_WINDOW_2_MAX", "0.5"))
 
 # Owner filtering (optional - leave empty to allow all owners)
 ALLOWED_OWNERS = os.getenv("ALLOWED_OWNERS", "")  # Comma-separated names, e.g., "Kyle Patton,Rick Straus"
@@ -30,12 +36,13 @@ ALLOWED_OWNER_IDS = os.getenv("ALLOWED_OWNER_IDS", "")  # Comma-separated IDs, e
 redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
 
 
-def check_already_called(shipment_id: int) -> bool:
+def check_already_called(shipment_id: int, call_type: str) -> bool:
     """
-    Check if we've already called this shipment
+    Check if we've already made this specific call type for this shipment
 
     Args:
         shipment_id: Turvo shipment ID
+        call_type: "checkin" (3-4h) or "final" (30m)
 
     Returns:
         bool: True if already called, False otherwise
@@ -43,32 +50,34 @@ def check_already_called(shipment_id: int) -> bool:
     if not redis_client:
         return False  # No Redis, can't check
 
-    cache_key = f"motus:in_transit:{shipment_id}"
+    cache_key = f"motus:in_transit:{call_type}:{shipment_id}"
     return redis_client.get(cache_key) is not None
 
 
-def mark_as_called(shipment_id: int, load_number: str):
+def mark_as_called(shipment_id: int, load_number: str, call_type: str):
     """
-    Mark shipment as called in Redis
+    Mark specific call type as completed for this shipment
 
     Args:
         shipment_id: Turvo shipment ID
         load_number: Load number for logging
+        call_type: "checkin" (3-4h) or "final" (30m)
     """
     if not redis_client:
         print(f"⚠ Redis not available, cannot mark {load_number} as called")
         return
 
-    cache_key = f"motus:in_transit:{shipment_id}"
+    cache_key = f"motus:in_transit:{call_type}:{shipment_id}"
     cache_data = {
         "load_number": load_number,
+        "call_type": call_type,
         "called_at": datetime.now(timezone.utc).isoformat()
     }
 
     ttl_seconds = REDIS_TTL_DAYS * 86400
     redis_client.set(cache_key, json.dumps(cache_data), ex=ttl_seconds)
 
-    print(f"✓ Marked {load_number} as called (TTL: {REDIS_TTL_DAYS} days)")
+    print(f"✓ Marked {load_number} [{call_type}] as called (TTL: {REDIS_TTL_DAYS} days)")
 
 
 def check_owner_allowed(shipment: Dict[str, Any]) -> tuple[bool, str]:
@@ -148,14 +157,18 @@ def send_webhook(payload: Dict[str, Any]) -> bool:
 
 def sync_in_transit() -> Dict[str, Any]:
     """
-    Main in-transit sync logic
+    Main in-transit sync logic with TWO call windows
 
-    1. Get all En Route shipments from Turvo
-    2. For each shipment, get full details
-    3. Check if delivery is within threshold (≤ 4 hours)
-    4. Check if already called (Redis dedup)
-    5. Send webhook to HappyRobot
-    6. Mark as called
+    Window 1 (checkin): 3-4 hours before delivery - check-in call
+    Window 2 (final): 0-30 minutes before delivery - final confirmation call
+
+    For each shipment:
+    1. Get full details from Turvo
+    2. Check both windows
+    3. For each window, check Redis dedup
+    4. Build batch of calls (with call_type)
+    5. Send single webhook to HappyRobot
+    6. Mark each call type as completed
 
     Returns:
         dict: Summary of execution
@@ -163,7 +176,8 @@ def sync_in_transit() -> Dict[str, Any]:
     print("="*80)
     print("MOTUS IN-TRANSIT SYNC")
     print(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
-    print(f"Call window: {CALL_HOURS_MIN}-{CALL_HOURS_MAX} hours until delivery")
+    print(f"Window 1 (checkin): {CALL_WINDOW_1_MIN}-{CALL_WINDOW_1_MAX} hours before delivery")
+    print(f"Window 2 (final):   {CALL_WINDOW_2_MIN}-{CALL_WINDOW_2_MAX} hours before delivery")
 
     # Show owner filtering status
     if ALLOWED_OWNERS:
@@ -226,10 +240,20 @@ def sync_in_transit() -> Dict[str, Any]:
     # Step 2: Process each shipment
     print(f"\n→ Processing {len(shipments)} shipments...")
 
-    calls_to_make = []  # Collect all payloads to send in one batch
-    already_called_count = 0
-    skipped_count = 0
-    owner_filtered_count = 0
+    calls_to_make = []  # Single batch with all calls (checkin + final)
+
+    # Counters for summary
+    stats = {
+        "checkin_already_called": 0,
+        "checkin_triggered": 0,
+        "checkin_outside_window": 0,
+        "final_already_called": 0,
+        "final_triggered": 0,
+        "final_outside_window": 0,
+        "owner_filtered": 0,
+        "no_eta": 0,
+        "missing_data": 0,
+    }
     errors = []
 
     for i, shipment in enumerate(shipments, 1):
@@ -238,10 +262,14 @@ def sync_in_transit() -> Dict[str, Any]:
 
         print(f"\n[{i}/{len(shipments)}] Load {custom_id} (ID: {shipment_id})")
 
-        # Check deduplication first (avoid unnecessary API call)
-        if check_already_called(shipment_id):
-            print(f"  ○ Already called, skipping")
-            already_called_count += 1
+        # Check if BOTH call types already made (skip API call entirely)
+        checkin_called = check_already_called(shipment_id, "checkin")
+        final_called = check_already_called(shipment_id, "final")
+
+        if checkin_called and final_called:
+            print(f"  ○ Both calls already made, skipping")
+            stats["checkin_already_called"] += 1
+            stats["final_already_called"] += 1
             continue
 
         # Get full details
@@ -256,7 +284,7 @@ def sync_in_transit() -> Dict[str, Any]:
         is_allowed, owner_info = check_owner_allowed(details)
         if not is_allowed:
             print(f"  ○ Owner not in allowed list: {owner_info}, skipping")
-            owner_filtered_count += 1
+            stats["owner_filtered"] += 1
             continue
 
         # Transform to webhook payload
@@ -264,55 +292,96 @@ def sync_in_transit() -> Dict[str, Any]:
 
         if not payload:
             # Missing critical data (logged by transform function)
-            skipped_count += 1
+            stats["missing_data"] += 1
             continue
 
         hours_until = payload["delivery"]["hours_until"]
 
-        # Check if within call window (3-4 hours)
         if hours_until is None:
             print(f"  ○ No ETA available, skipping")
-            skipped_count += 1
+            stats["no_eta"] += 1
             continue
 
-        if hours_until < CALL_HOURS_MIN or hours_until > CALL_HOURS_MAX:
-            print(f"  ○ {hours_until}h until delivery (outside {CALL_HOURS_MIN}-{CALL_HOURS_MAX}h window), skipping")
-            skipped_count += 1
-            continue
+        # Check BOTH windows for this shipment
+        call_types_to_make = []
 
-        # Within call window - add to batch!
-        print(f"  ✓ {hours_until}h until delivery - WILL CALL")
-        print(f"    Driver: {payload['driver']['name']} ({payload['driver']['phone']})")
-        print(f"    Delivering to: {payload['delivery']['location']['city']}, {payload['delivery']['location']['state']}")
-        print(f"    ETA: {payload['delivery']['eta_formatted']}")
+        # Window 1: Check-in call (3-4 hours)
+        if CALL_WINDOW_1_MIN <= hours_until <= CALL_WINDOW_1_MAX:
+            if checkin_called:
+                print(f"  ○ Window 1 (checkin): Already called")
+                stats["checkin_already_called"] += 1
+            else:
+                print(f"  ✓ Window 1 (checkin): {hours_until:.1f}h until delivery - WILL CALL")
+                call_types_to_make.append("checkin")
+        else:
+            stats["checkin_outside_window"] += 1
 
-        if payload['equipment']['temperature']:
-            print(f"    Temperature: {payload['equipment']['temperature']}°{payload['equipment']['temp_units']}")
+        # Window 2: Final call (0-30 min)
+        if CALL_WINDOW_2_MIN <= hours_until <= CALL_WINDOW_2_MAX:
+            if final_called:
+                print(f"  ○ Window 2 (final): Already called")
+                stats["final_already_called"] += 1
+            else:
+                print(f"  ✓ Window 2 (final): {hours_until:.1f}h until delivery - WILL CALL")
+                call_types_to_make.append("final")
+        else:
+            stats["final_outside_window"] += 1
 
-        # Add to batch
-        calls_to_make.append({
-            "shipment_id": shipment_id,
-            "load_number": custom_id,
-            "payload": payload
-        })
+        # Add calls to batch
+        for call_type in call_types_to_make:
+            # Create payload with call_type
+            call_payload = payload.copy()
+            call_payload["call_type"] = call_type
+
+            print(f"    Driver: {payload['driver']['name']} ({payload['driver']['phone']})")
+            print(f"    Delivering to: {payload['delivery']['location']['city']}, {payload['delivery']['location']['state']}")
+            print(f"    ETA: {payload['delivery']['eta_formatted']}")
+
+            if payload['equipment']['temperature']:
+                print(f"    Temperature: {payload['equipment']['temperature']}°{payload['equipment']['temp_units']}")
+
+            calls_to_make.append({
+                "shipment_id": shipment_id,
+                "load_number": custom_id,
+                "call_type": call_type,
+                "payload": call_payload
+            })
+
+            if call_type == "checkin":
+                stats["checkin_triggered"] += 1
+            else:
+                stats["final_triggered"] += 1
 
     # Step 3: Send all calls in one batch webhook
     if calls_to_make:
+        # Sort calls: reefer loads first, then by hours_until (most urgent first)
+        calls_to_make.sort(key=lambda c: (
+            0 if c["payload"]["equipment"]["temperature"] is not None else 1,  # Reefer first
+            c["payload"]["delivery"]["hours_until"] or 999  # Most urgent first
+        ))
+
         print(f"\n→ Sending batch webhook with {len(calls_to_make)} calls...")
+
+        reefer_count = sum(1 for c in calls_to_make if c["payload"]["equipment"]["temperature"] is not None)
+        checkin_count = sum(1 for c in calls_to_make if c["call_type"] == "checkin")
+        final_count = sum(1 for c in calls_to_make if c["call_type"] == "final")
+        print(f"   ({checkin_count} checkin, {final_count} final | {reefer_count} reefer loads prioritized)")
 
         # Prepare batch payload
         batch_payload = {
             "shipments": [call["payload"] for call in calls_to_make],
             "total_calls": len(calls_to_make),
+            "checkin_calls": checkin_count,
+            "final_calls": final_count,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
         # Send the batch
         if send_webhook(batch_payload):
             print(f"✓ Batch webhook sent successfully")
-            # Mark all as called
+            # Mark each call as completed with its call_type
             for call in calls_to_make:
-                mark_as_called(call["shipment_id"], call["load_number"])
+                mark_as_called(call["shipment_id"], call["load_number"], call["call_type"])
         else:
             errors.append({"error": "Batch webhook failed", "loads": [call["load_number"] for call in calls_to_make]})
 
@@ -320,11 +389,21 @@ def sync_in_transit() -> Dict[str, Any]:
     print("\n" + "="*80)
     print("SUMMARY")
     print("="*80)
-    print(f"Total shipments: {len(shipments)}")
-    print(f"Already called: {already_called_count}")
-    print(f"Owner filtered: {owner_filtered_count}")
-    print(f"Skipped (not in threshold or missing data): {skipped_count}")
-    print(f"Calls triggered: {len(calls_to_make)}")
+    print(f"Total shipments processed: {len(shipments)}")
+    print(f"Owner filtered: {stats['owner_filtered']}")
+    print(f"No ETA / Missing data: {stats['no_eta'] + stats['missing_data']}")
+    print()
+    print(f"Window 1 (checkin, {CALL_WINDOW_1_MIN}-{CALL_WINDOW_1_MAX}h):")
+    print(f"  Already called: {stats['checkin_already_called']}")
+    print(f"  Outside window: {stats['checkin_outside_window']}")
+    print(f"  → Calls triggered: {stats['checkin_triggered']}")
+    print()
+    print(f"Window 2 (final, {CALL_WINDOW_2_MIN}-{CALL_WINDOW_2_MAX}h):")
+    print(f"  Already called: {stats['final_already_called']}")
+    print(f"  Outside window: {stats['final_outside_window']}")
+    print(f"  → Calls triggered: {stats['final_triggered']}")
+    print()
+    print(f"TOTAL CALLS THIS RUN: {len(calls_to_make)}")
 
     if errors:
         print(f"\nErrors ({len(errors)}):")
@@ -336,9 +415,9 @@ def sync_in_transit() -> Dict[str, Any]:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "shipments_total": len(shipments),
         "shipments_processed": len(shipments),
-        "already_called": already_called_count,
-        "owner_filtered": owner_filtered_count,
-        "skipped": skipped_count,
-        "calls_made": len(calls_to_make),
+        "owner_filtered": stats["owner_filtered"],
+        "checkin_calls": stats["checkin_triggered"],
+        "final_calls": stats["final_triggered"],
+        "total_calls": len(calls_to_make),
         "errors": errors
     }
