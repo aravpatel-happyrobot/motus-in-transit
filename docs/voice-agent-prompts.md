@@ -346,24 +346,22 @@ The driver is currently approximately <miles_remaining> miles from the destinati
 
 ### Call Parameters
 
-| Parameter | Value |
-|-----------|-------|
-| `<agent_name>` | Paul |
-| `<driver_name>` | Driver Name |
-| `<origin_city>` | Pickup Location City |
-| `<origin_state>` | Pickup Location State |
-| `<destination_city>` | Delivery Location City |
-| `<destination_state>` | Delivery Location State |
-| `<next_stop_city>` | Load Stops 0 Location City |
-| `<next_stop_appointment>` | Load Delivery Date Open - Load Delivery Date Close |
-| `<stops>` | Load Stops |
-| `<equipment_type>` | Load Equipment Type Name |
-| `<is_reefer>` | true if Equipment Temperature is not null |
-| `<reefer_temp>` | Equipment Temperature with Equipment Temp Units |
-| `<load_number>` | Load Number (without M prefix) |
-| `<miles_remaining>` | Miles remaining to destination |
-| `<notes>` | Load Sale Notes and Stop Notes |
-| `<today>` | Current date and time |
+- `<agent_name>` is
+- `<driver_name>` is
+- `<origin_city>` is
+- `<origin_state>` is
+- `<destination_city>` is
+- `<destination_state>` is
+- `<next_stop_city>` is
+- `<next_stop_appointment>` is
+- `<stops>` is
+- `<equipment_type>` is
+- `<is_reefer>` is
+- `<reefer_temp>` is
+- `<load_number>` is
+- `<miles_remaining>` is
+- `<notes>` is
+- `<today>` is
 
 ---
 ---
@@ -550,19 +548,17 @@ The driver is currently approximately <miles_remaining> miles from the destinati
 
 ### Call Parameters
 
-| Parameter | Value |
-|-----------|-------|
-| `<agent_name>` | Paul |
-| `<driver_name>` | Driver Name |
-| `<origin_city>` | Pickup Location City |
-| `<destination_city>` | Delivery Location City |
-| `<destination_state>` | Delivery Location State |
-| `<destination_address>` | Delivery Location Address |
-| `<load_number>` | Load Number (without M prefix) |
-| `<is_reefer>` | true if Equipment Temperature is not null |
-| `<reefer_temp>` | Equipment Temperature with Equipment Temp Units |
-| `<miles_remaining>` | Miles remaining to destination |
-| `<today>` | Current date and time |
+- `<agent_name>` is
+- `<driver_name>` is
+- `<origin_city>` is
+- `<destination_city>` is
+- `<destination_state>` is
+- `<destination_address>` is
+- `<load_number>` is
+- `<is_reefer>` is
+- `<reefer_temp>` is
+- `<miles_remaining>` is
+- `<today>` is
 
 ---
 ---
