@@ -134,18 +134,6 @@ Wish the driver a good day and end the call.
 
 ---
 
-### Load Information
-
-- stops: <stops>
-- destination_city: <destination_city>
-- equipment_type: <equipment_type>
-- delivery_time_window: <next_stop_appointment>
-- is_reefer: <is_reefer>
-- reefer_temp: <reefer_temp>
-- miles_remaining: <miles_remaining>
-
----
-
 ### New Notes
 
 If the callee answers with "Dispatch" or mentions they are not the driver but are a dispatcher, that means they are the driver's dispatcher, continue with the conversation and getting the driver's location update from them.
@@ -447,16 +435,6 @@ If they report an issue, take note and let them know you've recorded it.
 #### 6. End the call
 
 Keep it brief: "Thanks <driver_name>, good luck with the delivery!"
-
----
-
-### Load Information
-
-- destination_city: <destination_city>
-- destination_address: <destination_address>
-- is_reefer: <is_reefer>
-- reefer_temp: <reefer_temp>
-- miles_remaining: <miles_remaining>
 
 ---
 
