@@ -104,6 +104,8 @@ def extract_driver_info(shipment: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """
     Extract driver name and phone from shipment
 
+    Takes the LAST driver in the list (most recent assignment)
+
     Args:
         shipment: Full shipment object
 
@@ -121,7 +123,8 @@ def extract_driver_info(shipment: Dict[str, Any]) -> Dict[str, Optional[str]]:
         if not drivers:
             continue
 
-        driver = drivers[0]
+        # Take the LAST driver (most recent)
+        driver = drivers[-1]
         context = driver.get("context", {})
 
         driver_name = context.get("name")
