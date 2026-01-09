@@ -7,9 +7,32 @@ FastAPI server with endpoints for:
 - Manual testing
 """
 
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import JSONResponse
 from handlers import in_transit
+
+
+def verify_api_key(authorization: str = Header(None)):
+    """Verify API key from Authorization header"""
+    api_key = os.getenv("API_SECRET_KEY")
+
+    # If no API key configured, allow all requests (for backwards compatibility)
+    if not api_key:
+        return True
+
+    # Check Bearer token format
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid Authorization format. Use: Bearer <token>")
+
+    token = authorization.replace("Bearer ", "")
+    if token != api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    return True
 
 app = FastAPI(
     title="Motus Freight In-Transit Integration",
@@ -41,20 +64,27 @@ async def health_check():
 
 
 @app.post("/sync-in-transit")
-async def sync_in_transit_endpoint():
+async def sync_in_transit_endpoint(authorization: str = Header(None)):
     """
-    In-Transit Sync Endpoint
+    In-Transit Sync Endpoint (Protected)
 
     Polls Turvo for En Route shipments and triggers calls
-    for loads 3-4 hours from delivery
+    for loads within call windows.
+
+    Authentication:
+    - Requires Authorization header: Bearer <API_SECRET_KEY>
+    - Set API_SECRET_KEY env var to enable authentication
 
     Called by:
-    - External cron job (every 30 minutes, after hours only)
+    - External cron job (every 15 minutes during business hours)
     - Manual trigger
 
     Returns:
         dict: Execution summary with calls triggered
     """
+    # Verify API key
+    verify_api_key(authorization)
+
     try:
         result = in_transit.sync_in_transit()
         return JSONResponse(content=result, status_code=200)
