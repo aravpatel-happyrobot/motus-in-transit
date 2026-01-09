@@ -8,7 +8,8 @@ FastAPI server with endpoints for:
 """
 
 import os
-from fastapi import FastAPI, HTTPException, Header
+from datetime import datetime, timezone
+from fastapi import FastAPI, HTTPException, Header, BackgroundTasks
 from fastapi.responses import JSONResponse
 from handlers import in_transit
 
@@ -34,11 +35,36 @@ def verify_api_key(authorization: str = Header(None)):
 
     return True
 
+
 app = FastAPI(
     title="Motus Freight In-Transit Integration",
     description="Turvo API integration for in-transit automated calls",
-    version="1.0.0"
+    version="2.0.0"
 )
+
+# Track sync status
+sync_status = {
+    "running": False,
+    "last_run": None,
+    "last_result": None
+}
+
+
+def run_sync_task():
+    """Background task to run the sync"""
+    global sync_status
+    sync_status["running"] = True
+
+    try:
+        result = in_transit.sync_in_transit()
+        sync_status["last_result"] = result
+        sync_status["last_run"] = datetime.now(timezone.utc).isoformat()
+    except Exception as e:
+        print(f"✗ Fatal error in sync_in_transit: {e}")
+        sync_status["last_result"] = {"success": False, "error": str(e)}
+        sync_status["last_run"] = datetime.now(timezone.utc).isoformat()
+    finally:
+        sync_status["running"] = False
 
 
 @app.get("/")
@@ -49,7 +75,8 @@ async def root():
         "status": "running",
         "endpoints": {
             "health": "/health",
-            "in_transit_sync": "/sync-in-transit (POST)"
+            "in_transit_sync": "/sync-in-transit (POST)",
+            "sync_status": "/sync-status (GET)"
         }
     }
 
@@ -63,38 +90,71 @@ async def health_check():
     }
 
 
+@app.get("/sync-status")
+async def get_sync_status(authorization: str = Header(None)):
+    """
+    Get the status of the last/current sync operation
+
+    Returns:
+        dict: Current sync status and last result
+    """
+    verify_api_key(authorization)
+
+    return {
+        "running": sync_status["running"],
+        "last_run": sync_status["last_run"],
+        "last_result": sync_status["last_result"]
+    }
+
+
 @app.post("/sync-in-transit")
-async def sync_in_transit_endpoint(authorization: str = Header(None)):
+async def sync_in_transit_endpoint(
+    background_tasks: BackgroundTasks,
+    authorization: str = Header(None)
+):
     """
     In-Transit Sync Endpoint (Protected)
 
-    Polls Turvo for En Route shipments and triggers calls
-    for loads within call windows.
+    Starts the sync process in the background and returns immediately.
+    Check /sync-status for results.
 
     Authentication:
     - Requires Authorization header: Bearer <API_SECRET_KEY>
     - Set API_SECRET_KEY env var to enable authentication
 
     Called by:
-    - External cron job (every 15 minutes during business hours)
+    - External cron job (every 5 minutes during business hours)
     - Manual trigger
 
     Returns:
-        dict: Execution summary with calls triggered
+        dict: Acknowledgment that sync has started
     """
     # Verify API key
     verify_api_key(authorization)
 
-    try:
-        result = in_transit.sync_in_transit()
-        return JSONResponse(content=result, status_code=200)
-
-    except Exception as e:
-        print(f"✗ Fatal error in sync_in_transit: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Sync failed: {str(e)}"
+    # Check if already running
+    if sync_status["running"]:
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "Sync already in progress",
+                "status": "running"
+            },
+            status_code=200
         )
+
+    # Start background task
+    background_tasks.add_task(run_sync_task)
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "message": "Sync started in background",
+            "status": "started",
+            "check_status_at": "/sync-status"
+        },
+        status_code=202
+    )
 
 
 if __name__ == "__main__":
