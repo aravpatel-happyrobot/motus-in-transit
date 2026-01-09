@@ -77,8 +77,6 @@ def mark_as_called(shipment_id: int, load_number: str, call_type: str):
     ttl_seconds = REDIS_TTL_DAYS * 86400
     redis_client.set(cache_key, json.dumps(cache_data), ex=ttl_seconds)
 
-    print(f"✓ Marked {load_number} [{call_type}] as called (TTL: {REDIS_TTL_DAYS} days)")
-
 
 def check_owner_allowed(shipment: Dict[str, Any]) -> tuple[bool, str]:
     """
@@ -125,17 +123,9 @@ def check_owner_allowed(shipment: Dict[str, Any]) -> tuple[bool, str]:
 
 
 def send_webhook(payload: Dict[str, Any]) -> bool:
-    """
-    Send webhook to HappyRobot
-
-    Args:
-        payload: Webhook payload (batch format with multiple shipments)
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
+    """Send webhook to HappyRobot"""
     if not MOTUS_IN_TRANSIT_WEBHOOK_URL:
-        print("⚠ MOTUS_IN_TRANSIT_WEBHOOK_URL not configured")
+        print("ERROR: MOTUS_IN_TRANSIT_WEBHOOK_URL not configured")
         return False
 
     try:
@@ -145,13 +135,10 @@ def send_webhook(payload: Dict[str, Any]) -> bool:
             headers={"Content-Type": "application/json"},
             timeout=10
         )
-
         response.raise_for_status()
-        print(f"✓ Webhook sent (HTTP {response.status_code})")
         return True
-
     except requests.exceptions.RequestException as e:
-        print(f"✗ Webhook failed: {e}")
+        print(f"ERROR: Webhook failed: {e}")
         return False
 
 
@@ -173,42 +160,18 @@ def sync_in_transit() -> Dict[str, Any]:
     Returns:
         dict: Summary of execution
     """
-    print("="*80)
-    print("MOTUS IN-TRANSIT SYNC")
-    print(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
-    print(f"Window 1 (checkin): {CALL_WINDOW_1_MIN}-{CALL_WINDOW_1_MAX} hours before delivery")
-    print(f"Window 2 (final):   {CALL_WINDOW_2_MIN}-{CALL_WINDOW_2_MAX} hours before delivery")
-
-    # Show owner filtering status
-    if ALLOWED_OWNERS:
-        print(f"Owner filter: {ALLOWED_OWNERS} (by name)")
-    elif ALLOWED_OWNER_IDS:
-        print(f"Owner filter: {ALLOWED_OWNER_IDS} (by ID)")
-    else:
-        print(f"Owner filter: DISABLED (all owners allowed)")
-
-    print("="*80)
+    print(f"SYNC START | {datetime.now(timezone.utc).isoformat()}")
 
     # Step 1: Get ALL En Route shipments (status 2105) across all pages
-    print("\n→ Querying ALL En Route shipments (paginating)...")
     try:
         shipments = turvo_client.list_all_shipments(status=2105)
-        print(f"✓ Found {len(shipments)} En Route shipments across all pages")
     except Exception as e:
-        print(f"✗ Failed to get shipments: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "calls_made": 0
-        }
+        print(f"ERROR: Failed to get shipments: {e}")
+        return {"success": False, "error": str(e), "calls_made": 0}
 
     if not shipments:
-        print("No En Route shipments found")
-        return {
-            "success": True,
-            "shipments_processed": 0,
-            "calls_made": 0
-        }
+        print("SYNC COMPLETE | No shipments found")
+        return {"success": True, "shipments_processed": 0, "calls_made": 0}
 
     # Filter out invalid statuses (canceled, delivered, etc.)
     INVALID_STATUSES = [
@@ -225,21 +188,11 @@ def sync_in_transit() -> Dict[str, Any]:
         if s.get("status", {}).get("code", {}).get("key") not in INVALID_STATUSES
     ]
 
-    if len(shipments) < initial_count:
-        filtered_out = initial_count - len(shipments)
-        print(f"✓ Filtered out {filtered_out} shipments (canceled/delivered/etc)")
-
     if not shipments:
-        print("No valid shipments to process after filtering")
-        return {
-            "success": True,
-            "shipments_processed": 0,
-            "calls_made": 0
-        }
+        print("SYNC COMPLETE | No valid shipments after filtering")
+        return {"success": True, "shipments_processed": 0, "calls_made": 0}
 
     # Step 2: Process each shipment
-    print(f"\n→ Processing {len(shipments)} shipments...")
-
     calls_to_make = []  # Single batch with all calls (checkin + final)
 
     # Counters for summary
@@ -260,14 +213,11 @@ def sync_in_transit() -> Dict[str, Any]:
         shipment_id = shipment["id"]
         custom_id = shipment.get("customId", "Unknown")
 
-        print(f"\n[{i}/{len(shipments)}] Load {custom_id} (ID: {shipment_id})")
-
         # Check if BOTH call types already made (skip API call entirely)
         checkin_called = check_already_called(shipment_id, "checkin")
         final_called = check_already_called(shipment_id, "final")
 
         if checkin_called and final_called:
-            print(f"  ○ Both calls already made, skipping")
             stats["checkin_already_called"] += 1
             stats["final_already_called"] += 1
             continue
@@ -276,14 +226,12 @@ def sync_in_transit() -> Dict[str, Any]:
         try:
             details = turvo_client.get_shipment_details(shipment_id)
         except Exception as e:
-            print(f"  ✗ Failed to get details: {e}")
             errors.append({"load": custom_id, "error": str(e)})
             continue
 
         # Check owner filtering
         is_allowed, owner_info = check_owner_allowed(details)
         if not is_allowed:
-            print(f"  ○ Owner not in allowed list: {owner_info}, skipping")
             stats["owner_filtered"] += 1
             continue
 
@@ -298,7 +246,6 @@ def sync_in_transit() -> Dict[str, Any]:
         hours_until = payload["delivery"]["hours_until"]
 
         if hours_until is None:
-            print(f"  ○ No ETA available, skipping")
             stats["no_eta"] += 1
             continue
 
@@ -308,10 +255,8 @@ def sync_in_transit() -> Dict[str, Any]:
         # Window 1: Check-in call (3-4 hours)
         if CALL_WINDOW_1_MIN <= hours_until <= CALL_WINDOW_1_MAX:
             if checkin_called:
-                print(f"  ○ Window 1 (checkin): Already called")
                 stats["checkin_already_called"] += 1
             else:
-                print(f"  ✓ Window 1 (checkin): {hours_until:.1f}h until delivery - WILL CALL")
                 call_types_to_make.append("checkin")
         else:
             stats["checkin_outside_window"] += 1
@@ -319,10 +264,8 @@ def sync_in_transit() -> Dict[str, Any]:
         # Window 2: Final call (0-30 min)
         if CALL_WINDOW_2_MIN <= hours_until <= CALL_WINDOW_2_MAX:
             if final_called:
-                print(f"  ○ Window 2 (final): Already called")
                 stats["final_already_called"] += 1
             else:
-                print(f"  ✓ Window 2 (final): {hours_until:.1f}h until delivery - WILL CALL")
                 call_types_to_make.append("final")
         else:
             stats["final_outside_window"] += 1
@@ -333,12 +276,8 @@ def sync_in_transit() -> Dict[str, Any]:
             call_payload = payload.copy()
             call_payload["call_type"] = call_type
 
-            print(f"    Driver: {payload['driver']['name']} ({payload['driver']['phone']})")
-            print(f"    Delivering to: {payload['delivery']['location']['city']}, {payload['delivery']['location']['state']}")
-            print(f"    ETA: {payload['delivery']['eta_formatted']}")
-
-            if payload['equipment']['temperature']:
-                print(f"    Temperature: {payload['equipment']['temperature']}°{payload['equipment']['temp_units']}")
+            # Log calls that will be made
+            print(f"  → {call_type.upper()} call: {custom_id} | {payload['driver']['name']} | {payload['delivery']['location']['city']}, {payload['delivery']['location']['state']} | ETA: {payload['delivery']['eta_formatted']}")
 
             calls_to_make.append({
                 "shipment_id": shipment_id,
@@ -356,16 +295,12 @@ def sync_in_transit() -> Dict[str, Any]:
     if calls_to_make:
         # Sort calls: reefer loads first, then by hours_until (most urgent first)
         calls_to_make.sort(key=lambda c: (
-            0 if c["payload"]["equipment"]["temperature"] is not None else 1,  # Reefer first
-            c["payload"]["delivery"]["hours_until"] or 999  # Most urgent first
+            0 if c["payload"]["equipment"]["temperature"] is not None else 1,
+            c["payload"]["delivery"]["hours_until"] or 999
         ))
 
-        print(f"\n→ Sending batch webhook with {len(calls_to_make)} calls...")
-
-        reefer_count = sum(1 for c in calls_to_make if c["payload"]["equipment"]["temperature"] is not None)
         checkin_count = sum(1 for c in calls_to_make if c["call_type"] == "checkin")
         final_count = sum(1 for c in calls_to_make if c["call_type"] == "final")
-        print(f"   ({checkin_count} checkin, {final_count} final | {reefer_count} reefer loads prioritized)")
 
         # Prepare batch payload
         batch_payload = {
@@ -378,37 +313,13 @@ def sync_in_transit() -> Dict[str, Any]:
 
         # Send the batch
         if send_webhook(batch_payload):
-            print(f"✓ Batch webhook sent successfully")
-            # Mark each call as completed with its call_type
             for call in calls_to_make:
                 mark_as_called(call["shipment_id"], call["load_number"], call["call_type"])
         else:
             errors.append({"error": "Batch webhook failed", "loads": [call["load_number"] for call in calls_to_make]})
 
-    # Summary
-    print("\n" + "="*80)
-    print("SUMMARY")
-    print("="*80)
-    print(f"Total shipments processed: {len(shipments)}")
-    print(f"Owner filtered: {stats['owner_filtered']}")
-    print(f"No ETA / Missing data: {stats['no_eta'] + stats['missing_data']}")
-    print()
-    print(f"Window 1 (checkin, {CALL_WINDOW_1_MIN}-{CALL_WINDOW_1_MAX}h):")
-    print(f"  Already called: {stats['checkin_already_called']}")
-    print(f"  Outside window: {stats['checkin_outside_window']}")
-    print(f"  → Calls triggered: {stats['checkin_triggered']}")
-    print()
-    print(f"Window 2 (final, {CALL_WINDOW_2_MIN}-{CALL_WINDOW_2_MAX}h):")
-    print(f"  Already called: {stats['final_already_called']}")
-    print(f"  Outside window: {stats['final_outside_window']}")
-    print(f"  → Calls triggered: {stats['final_triggered']}")
-    print()
-    print(f"TOTAL CALLS THIS RUN: {len(calls_to_make)}")
-
-    if errors:
-        print(f"\nErrors ({len(errors)}):")
-        for error in errors:
-            print(f"  - {error}")
+    # Summary log
+    print(f"SYNC COMPLETE | Processed: {len(shipments)} | Filtered: {stats['owner_filtered']} | Checkin: {stats['checkin_triggered']} | Final: {stats['final_triggered']} | Errors: {len(errors)}")
 
     return {
         "success": True,

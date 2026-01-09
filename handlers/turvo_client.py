@@ -39,13 +39,11 @@ def get_turvo_token() -> str:
                 expires_at = datetime.fromisoformat(token_data["expires_at"])
 
                 if datetime.now(timezone.utc) < expires_at:
-                    print("✓ Using cached Turvo token")
                     return token_data["access_token"]
             except (json.JSONDecodeError, KeyError, ValueError):
-                print("⚠ Invalid cached token, fetching new one")
+                pass  # Invalid cache, fetch new token
 
     # Fetch new token
-    print("→ Fetching new Turvo access token...")
 
     response = requests.post(
         f"{TURVO_BASE_URL}/oauth/token",
@@ -83,7 +81,6 @@ def get_turvo_token() -> str:
             }),
             ex=expires_in
         )
-        print(f"✓ New token cached, expires at {expires_at.strftime('%H:%M:%S UTC')}")
 
     return access_token
 
@@ -177,7 +174,6 @@ def list_all_shipments(status: Optional[int] = None) -> list:
 
         # Safety limit to prevent infinite loops
         if page_num >= 100:
-            print(f"⚠ Reached 100 pages ({len(all_shipments)} shipments), stopping for safety")
             break
 
     return all_shipments
