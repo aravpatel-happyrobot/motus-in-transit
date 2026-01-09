@@ -4,22 +4,26 @@ Automated driver check-in calls for Motus Freight using Turvo TMS integration.
 
 ## Overview
 
-This system polls the Turvo API every 30 minutes (after hours only) to find loads that are 3-4 hours from delivery and triggers automated calls to drivers for real-time ETA updates.
+This system polls the Turvo API to find loads approaching delivery and triggers automated calls to drivers for real-time ETA updates. It uses a **two-window call system**:
+
+- **Window 1 (Check-in):** 3-4 hours before delivery - initial status check
+- **Window 2 (Final):** 0-30 minutes before delivery - final confirmation
 
 ## Features
 
-- ✅ **Real-time ETA tracking** from Turvo GPS data
-- ✅ **Temperature monitoring** for refrigerated loads
-- ✅ **Smart deduplication** (no repeat calls)
-- ✅ **Token caching** (efficient 12-hour OAuth tokens)
-- ✅ **Rich context** (notes, equipment, locations)
+- **Two-window call system** - Check-in and final calls at optimal times
+- **Real-time ETA tracking** from Turvo GPS data
+- **Temperature monitoring** for refrigerated loads
+- **Smart deduplication** - Separate tracking per call type (no repeat calls)
+- **Token caching** - Efficient 12-hour OAuth tokens via Redis
+- **Owner filtering** - Control which shipments trigger calls
+- **API authentication** - Bearer token security for the sync endpoint
 
 ## Quick Start
 
 ### 1. Install Dependencies
 
 ```bash
-cd integrations/motus_freight
 pip install -r requirements.txt
 ```
 
@@ -28,43 +32,55 @@ pip install -r requirements.txt
 Copy `.env.example` to `.env` and configure:
 
 ```bash
-# Required
+# Redis (for token caching and deduplication)
+REDIS_URL=redis://...
+
+# Turvo API Configuration
+TURVO_BASE_URL=https://publicapi.turvo.com/v1
+TURVO_API_KEY=your_api_key
 TURVO_USERNAME=your_username
 TURVO_PASSWORD=your_password
-REDIS_URL=redis://...
+TURVO_CLIENT_ID=publicapi
+TURVO_CLIENT_SECRET=secret
+
+# HappyRobot Webhook
 MOTUS_IN_TRANSIT_WEBHOOK_URL=https://workflows.platform.happyrobot.ai/hooks/...
 
-# Optional
-CALL_HOURS_MIN=3         # Minimum hours before delivery
-CALL_HOURS_MAX=4         # Maximum hours before delivery
-REDIS_TTL_DAYS=2         # Days to remember calls
+# API Security
+API_SECRET_KEY=your_secret_key
+
+# Call Windows
+CALL_WINDOW_1_MIN=3      # Window 1: 3-4 hours before delivery
+CALL_WINDOW_1_MAX=4
+CALL_WINDOW_2_MIN=0      # Window 2: 0-30 minutes before delivery
+CALL_WINDOW_2_MAX=0.5
+REDIS_TTL_DAYS=2
+
+# Owner Filtering (optional)
+ALLOWED_OWNERS=
+ALLOWED_OWNER_IDS=
 ```
 
 ### 3. Run Locally
 
 ```bash
-cd integrations/motus_freight
 uvicorn server:app --reload
 ```
 
 Visit http://localhost:8000
 
-### 4. Test the Integration
-
-```bash
-python test_integration.py
-```
-
 ## How It Works
 
 ```
-Every 30 minutes (after hours only):
+Every 5 minutes (during business hours):
   1. Query Turvo for all "En Route" shipments (with pagination)
   2. Get full details for each (ETA, driver phone, equipment)
-  3. Filter: Keep only loads 3-4 hours from delivery
-  4. Check Redis: Skip if already called (2-day TTL)
-  5. Send batch webhook to HappyRobot → Trigger calls
-  6. Mark all as called in Redis (no repeats)
+  3. Filter by call windows:
+     - Window 1: 3-4 hours from delivery → "checkin" call
+     - Window 2: 0-30 minutes from delivery → "final" call
+  4. Check Redis: Skip if already called for this window (2-day TTL)
+  5. Send webhook to HappyRobot → Trigger calls
+  6. Mark as called in Redis (separate keys per call type)
 ```
 
 ## Webhook Payload
@@ -73,6 +89,7 @@ Data sent to HappyRobot for each call:
 
 ```json
 {
+  "call_type": "checkin",
   "load_number": "M290638",
   "driver": {
     "name": "Harrison",
@@ -81,7 +98,7 @@ Data sent to HappyRobot for each call:
   "delivery": {
     "eta": "2026-01-03T00:06:23Z",
     "eta_formatted": "Jan 2, 19:06 EST",
-    "hours_until": 1.6,
+    "hours_until": 3.5,
     "miles_remaining": 97,
     "location": {
       "city": "New Oxford",
@@ -104,116 +121,108 @@ Data sent to HappyRobot for each call:
 
 ```
 motus-in-transit/
-├── .env                           # Configuration
-├── README.md                      # This file
-│
-├── integrations/motus_freight/    # Main integration
-│   ├── server.py                  # FastAPI app
-│   ├── requirements.txt           # Dependencies
-│   ├── railway.json              # Deployment config
-│   ├── README.md                 # Detailed docs
-│   └── handlers/
-│       ├── turvo_client.py       # Turvo API wrapper
-│       ├── turvo_utils.py        # Data transformation
-│       └── in_transit.py         # Main sync logic
-│
-├── docs/                          # Documentation
-│   ├── TECHNICAL_DEEP_DIVE.md    # How it works
-│   ├── WEBHOOK_PAYLOAD_SPEC.md   # Payload reference
-│   ├── TOKEN_CACHING_STRATEGY.md # Token caching
-│   └── ...
-│
-└── archive/                       # Test scripts
-    ├── turvo_api_test.py
-    └── ...
+├── .env                    # Configuration (not committed)
+├── .env.example            # Example configuration
+├── README.md               # This file
+├── railway.json            # Railway deployment config
+├── requirements.txt        # Python dependencies
+├── server.py               # FastAPI app
+├── handlers/
+│   ├── __init__.py
+│   ├── in_transit.py       # Main sync logic
+│   ├── turvo_client.py     # Turvo API wrapper
+│   └── turvo_utils.py      # Data transformation
+└── docs/
+    ├── voice-agent-prompts.md      # Voice agent prompt guide
+    ├── email-templates.md          # Post-call email templates
+    └── happyrobot-workflow-design.md
 ```
 
 ## Deployment
 
-### Railway (Recommended)
+### Railway
 
 1. Push to GitHub
-2. Create Railway service
-3. Link repo
-4. Set environment variables
-5. Deploy
+2. Create Railway service from repo
+3. Set environment variables in Railway dashboard
+4. Deploy
 
-### Cron Setup (External)
+### Cron Setup
 
-Use an external cron service (e.g., cron-job.org, EasyCron) to trigger the sync endpoint every 30 minutes during after-hours:
+Use Railway's cron service or an external service to trigger the sync endpoint:
 
 **Endpoint:** `POST https://your-app.railway.app/sync-in-transit`
 
-**Schedule Examples:**
-- Every 30 minutes: `*/30 * * * *`
-- After hours only (6 PM - 6 AM): `*/30 18-23,0-5 * * *`
+**Headers:**
+```
+Authorization: Bearer <API_SECRET_KEY>
+```
 
-The Railway app runs 24/7 and waits for the external cron to trigger it.
+**Recommended Schedule:** Every 5 minutes during business hours (4:30 AM - 5 PM CST)
+```
+*/5 10-23 * * *   (UTC, which is CST + 6)
+```
 
 ## API Endpoints
 
-- `GET /` - Service info
-- `GET /health` - Health check
-- `POST /sync-in-transit` - Run in-transit sync
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/` | GET | No | Service info |
+| `/health` | GET | No | Health check |
+| `/sync-in-transit` | POST | Yes | Run in-transit sync |
+
+### Authentication
+
+The `/sync-in-transit` endpoint requires a Bearer token:
+
+```bash
+curl -X POST https://your-app.railway.app/sync-in-transit \
+  -H "Authorization: Bearer YOUR_API_SECRET_KEY"
+```
 
 ## Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CALL_HOURS_MIN` | Minimum hours before delivery | 3 |
-| `CALL_HOURS_MAX` | Maximum hours before delivery | 4 |
+| `CALL_WINDOW_1_MIN` | Window 1 minimum hours before delivery | 3 |
+| `CALL_WINDOW_1_MAX` | Window 1 maximum hours before delivery | 4 |
+| `CALL_WINDOW_2_MIN` | Window 2 minimum hours before delivery | 0 |
+| `CALL_WINDOW_2_MAX` | Window 2 maximum hours before delivery | 0.5 |
 | `REDIS_TTL_DAYS` | Days to remember calls | 2 |
-| `ALLOWED_OWNERS` | Filter by owner names (comma-separated) | "" (all owners) |
-| `ALLOWED_OWNER_IDS` | Filter by owner IDs (comma-separated) | "" (all owners) |
-| `TURVO_BASE_URL` | Turvo API base URL | https://publicapi.turvo.com/v1 |
+| `API_SECRET_KEY` | Bearer token for sync endpoint | (none) |
+| `ALLOWED_OWNERS` | Filter by owner names (comma-separated) | "" (all) |
+| `ALLOWED_OWNER_IDS` | Filter by owner IDs (comma-separated) | "" (all) |
 
 ### Owner Filtering
 
-Control which shipments trigger calls based on who owns them in Motus:
+Control which shipments trigger calls based on who owns them in Turvo:
 
-**Option 1: By Name** (easier to read)
+**By Name:**
 ```bash
-ALLOWED_OWNERS=Kyle Patton,Rick Straus,Barrett Roush
+ALLOWED_OWNERS=Cameron Murray,Justin Kinnett
 ```
 
-**Option 2: By ID** (more reliable, names can change)
+**By ID:**
 ```bash
-ALLOWED_OWNER_IDS=201288,5564,411996
+ALLOWED_OWNER_IDS=201288,5564
 ```
 
-**Disable filtering** (allow all owners):
+**Disable filtering (all owners):**
 ```bash
 ALLOWED_OWNERS=
 ALLOWED_OWNER_IDS=
 ```
 
-You can change this anytime in Railway → Variables without code changes.
-
-## Documentation
-
-- **[Integration README](integrations/motus_freight/README.md)** - Detailed integration docs
-- **[Technical Deep Dive](docs/TECHNICAL_DEEP_DIVE.md)** - How everything works
-- **[Webhook Payload Spec](docs/WEBHOOK_PAYLOAD_SPEC.md)** - Complete payload reference
-- **[Token Caching Strategy](docs/TOKEN_CACHING_STRATEGY.md)** - OAuth2 token management
-
 ## Monitoring
 
-Check logs for:
-- ✓ Shipments found
-- ✓ Calls triggered
-- ✗ API errors
-- ⚠ Missing data
-
-## Support
-
-For issues:
-1. Check Railway logs
-2. Test individual components
-3. Review documentation
-4. Verify environment variables
+Check Railway logs for:
+- `✓` Shipments found
+- `✓` Calls triggered (checkin/final)
+- `✗` API errors
+- `⚠` Missing data or filtered loads
 
 ---
 
 **Status:** Production Ready
-**Version:** 1.0.0
-**Last Updated:** 2026-01-02
+**Version:** 2.0.0
+**Last Updated:** 2026-01-09
