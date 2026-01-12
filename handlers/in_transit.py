@@ -50,7 +50,7 @@ def check_already_called(shipment_id: int, call_type: str) -> bool:
     if not redis_client:
         return False  # No Redis, can't check
 
-    cache_key = f"motus:in_transit:{call_type}:{shipment_id}"
+    cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{shipment_id}"
     return redis_client.get(cache_key) is not None
 
 
@@ -67,7 +67,7 @@ def mark_as_called(shipment_id: int, load_number: str, call_type: str):
         print(f"⚠ Redis not available, cannot mark {load_number} as called")
         return
 
-    cache_key = f"motus:in_transit:{call_type}:{shipment_id}"
+    cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{shipment_id}"
     cache_data = {
         "load_number": load_number,
         "call_type": call_type,

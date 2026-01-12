@@ -31,7 +31,7 @@ def get_turvo_token() -> str:
     """
     # Try Redis cache first
     if redis_client:
-        cached_data = redis_client.get("turvo:auth_token")
+        cached_data = redis_client.get("019b0e1e-f561-7a0a-97a4-11058661c03e:auth_token")
 
         if cached_data:
             try:
@@ -74,7 +74,7 @@ def get_turvo_token() -> str:
 
     if redis_client:
         redis_client.set(
-            "turvo:auth_token",
+            "019b0e1e-f561-7a0a-97a4-11058661c03e:auth_token",
             json.dumps({
                 "access_token": access_token,
                 "expires_at": expires_at.isoformat()
