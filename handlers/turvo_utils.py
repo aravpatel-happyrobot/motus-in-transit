@@ -288,12 +288,66 @@ def extract_customer_info(shipment: Dict[str, Any]) -> Dict[str, Optional[Any]]:
     }
 
 
-def transform_shipment_for_webhook(shipment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def extract_owner_id(shipment: Dict[str, Any]) -> Optional[int]:
+    """
+    Extract owner ID from shipment
+
+    Args:
+        shipment: Full shipment object
+
+    Returns:
+        int: Owner ID or None
+    """
+    customer_orders = shipment.get("customerOrder", [])
+
+    for co in customer_orders:
+        if co.get("deleted"):
+            continue
+        customer = co.get("customer", {})
+        owner = customer.get("owner", {})
+        owner_id = owner.get("id")
+        if owner_id:
+            return owner_id
+
+    return None
+
+
+def extract_owner_contact_info(user_details: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """
+    Extract owner contact info from user details
+
+    Args:
+        user_details: User object from /users/{id} endpoint
+
+    Returns:
+        dict: Owner name, email, phone
+    """
+    if not user_details:
+        return {"name": None, "id": None, "email": None, "phone": None}
+
+    # Get primary email
+    emails = user_details.get("email", [])
+    primary_email = next((e["email"] for e in emails if e.get("isPrimary")), None)
+
+    # Get primary phone
+    phones = user_details.get("phone", [])
+    primary_phone = next((p["number"] for p in phones if p.get("isPrimary")), None)
+
+    return {
+        "name": user_details.get("name"),
+        "id": user_details.get("id"),
+        "email": primary_email,
+        "phone": primary_phone
+    }
+
+
+def transform_shipment_for_webhook(shipment: Dict[str, Any], owner_info: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     Transform Turvo shipment into HappyRobot webhook payload
 
     Args:
         shipment: Full Turvo shipment object
+        owner_info: Optional owner contact info (name, email, phone)
 
     Returns:
         dict: Webhook payload or None if missing critical data
@@ -358,6 +412,8 @@ def transform_shipment_for_webhook(shipment: Dict[str, Any]) -> Optional[Dict[st
         "carrier": extract_carrier_info(shipment),
 
         "customer": extract_customer_info(shipment),
+
+        "owner": owner_info or {"name": None, "id": None, "email": None, "phone": None},
 
         "source": "motus_in_transit",
         "timestamp": datetime.now(timezone.utc).isoformat()

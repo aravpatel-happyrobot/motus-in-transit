@@ -191,3 +191,17 @@ def get_shipment_details(shipment_id: int) -> Dict[str, Any]:
     """
     response = turvo_get(f"/shipments/{shipment_id}")
     return response.get("details", {})
+
+
+def get_user_details(user_id: int) -> Dict[str, Any]:
+    """
+    Get user details by ID (for owner contact info)
+
+    Args:
+        user_id: Turvo user ID
+
+    Returns:
+        dict: User object with name, email, phone, etc.
+    """
+    response = turvo_get(f"/users/{user_id}")
+    return response.get("details", {})

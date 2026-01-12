@@ -194,6 +194,7 @@ def sync_in_transit() -> Dict[str, Any]:
 
     # Step 2: Process each shipment
     calls_to_make = []  # Single batch with all calls (checkin + final)
+    owner_cache = {}  # In-memory cache for owner details during this sync
 
     # Counters for summary
     stats = {
@@ -235,8 +236,20 @@ def sync_in_transit() -> Dict[str, Any]:
             stats["owner_filtered"] += 1
             continue
 
+        # Get owner contact info (with caching)
+        owner_id = turvo_utils.extract_owner_id(details)
+        owner_contact = None
+        if owner_id:
+            if owner_id not in owner_cache:
+                try:
+                    user_details = turvo_client.get_user_details(owner_id)
+                    owner_cache[owner_id] = turvo_utils.extract_owner_contact_info(user_details)
+                except Exception:
+                    owner_cache[owner_id] = None
+            owner_contact = owner_cache[owner_id]
+
         # Transform to webhook payload
-        payload = turvo_utils.transform_shipment_for_webhook(details)
+        payload = turvo_utils.transform_shipment_for_webhook(details, owner_info=owner_contact)
 
         if not payload:
             # Missing critical data (logged by transform function)
