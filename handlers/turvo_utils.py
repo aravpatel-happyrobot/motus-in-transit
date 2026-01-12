@@ -320,23 +320,28 @@ def extract_owner_contact_info(user_details: Dict[str, Any]) -> Dict[str, Option
         user_details: User object from /users/{id} endpoint
 
     Returns:
-        dict: Owner name, email, phone
+        dict: Owner name, email (team email format), phone
     """
     if not user_details:
         return {"name": None, "id": None, "email": None, "phone": None}
 
-    # Get primary email
-    emails = user_details.get("email", [])
-    primary_email = next((e["email"] for e in emails if e.get("isPrimary")), None)
+    # Generate team email from owner name: "Cameron Murray" -> "teammurray@motustrucking.com"
+    owner_name = user_details.get("name", "")
+    team_email = None
+    if owner_name:
+        name_parts = owner_name.strip().split()
+        if name_parts:
+            last_name = name_parts[-1].lower()
+            team_email = f"team{last_name}@motustrucking.com"
 
     # Get primary phone
     phones = user_details.get("phone", [])
     primary_phone = next((p["number"] for p in phones if p.get("isPrimary")), None)
 
     return {
-        "name": user_details.get("name"),
+        "name": owner_name,
         "id": user_details.get("id"),
-        "email": primary_email,
+        "email": team_email,
         "phone": primary_phone
     }
 
