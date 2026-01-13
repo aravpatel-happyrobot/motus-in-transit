@@ -7,7 +7,38 @@ standardized format for HappyRobot webhooks
 
 import re
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
+from zoneinfo import ZoneInfo
+
+
+# US State to Timezone mapping (primary timezone for each state)
+STATE_TO_TIMEZONE = {
+    # Eastern Time
+    "CT": "America/New_York", "DE": "America/New_York", "DC": "America/New_York",
+    "FL": "America/New_York", "GA": "America/New_York", "IN": "America/New_York",
+    "KY": "America/New_York", "ME": "America/New_York", "MD": "America/New_York",
+    "MA": "America/New_York", "MI": "America/New_York", "NH": "America/New_York",
+    "NJ": "America/New_York", "NY": "America/New_York", "NC": "America/New_York",
+    "OH": "America/New_York", "PA": "America/New_York", "RI": "America/New_York",
+    "SC": "America/New_York", "VT": "America/New_York", "VA": "America/New_York",
+    "WV": "America/New_York",
+    # Central Time
+    "AL": "America/Chicago", "AR": "America/Chicago", "IL": "America/Chicago",
+    "IA": "America/Chicago", "KS": "America/Chicago", "LA": "America/Chicago",
+    "MN": "America/Chicago", "MS": "America/Chicago", "MO": "America/Chicago",
+    "NE": "America/Chicago", "ND": "America/Chicago", "OK": "America/Chicago",
+    "SD": "America/Chicago", "TN": "America/Chicago", "TX": "America/Chicago",
+    "WI": "America/Chicago",
+    # Mountain Time
+    "AZ": "America/Phoenix",  # No DST
+    "CO": "America/Denver", "ID": "America/Denver", "MT": "America/Denver",
+    "NM": "America/Denver", "UT": "America/Denver", "WY": "America/Denver",
+    # Pacific Time
+    "CA": "America/Los_Angeles", "NV": "America/Los_Angeles",
+    "OR": "America/Los_Angeles", "WA": "America/Los_Angeles",
+    # Alaska & Hawaii
+    "AK": "America/Anchorage", "HI": "Pacific/Honolulu",
+}
 
 
 def find_delivery_stop(global_route: list) -> Optional[Dict[str, Any]]:
@@ -55,23 +86,123 @@ def find_pickup_stop(global_route: list) -> Optional[Dict[str, Any]]:
     return None
 
 
-def calculate_hours_until(eta_iso: str) -> Optional[float]:
-    """
-    Calculate hours until delivery from ISO timestamp
-
-    Args:
-        eta_iso: ISO 8601 timestamp (e.g., "2026-01-05T07:37:53Z")
-
-    Returns:
-        float: Hours until delivery (rounded to 1 decimal) or None if invalid
-    """
+def parse_iso_timestamp(iso_str: str) -> Optional[datetime]:
+    """Parse ISO timestamp to datetime object"""
+    if not iso_str:
+        return None
     try:
-        eta_dt = datetime.fromisoformat(eta_iso.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc)
-        hours = (eta_dt - now).total_seconds() / 3600
-        return round(hours, 1)
+        return datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
         return None
+
+
+def get_timezone_for_state(state: Optional[str]) -> ZoneInfo:
+    """
+    Get timezone for a US state code
+
+    Args:
+        state: Two-letter state code (e.g., "CA", "TX")
+
+    Returns:
+        ZoneInfo: Timezone object, defaults to America/Chicago if unknown
+    """
+    if not state:
+        return ZoneInfo("America/Chicago")
+
+    tz_name = STATE_TO_TIMEZONE.get(state.upper(), "America/Chicago")
+    return ZoneInfo(tz_name)
+
+
+def format_datetime_with_timezone(dt: datetime, state: Optional[str]) -> str:
+    """
+    Format datetime as "Jan 12, 19:59 EST" in the delivery location's timezone
+
+    Args:
+        dt: UTC datetime object
+        state: Two-letter state code for timezone lookup
+
+    Returns:
+        str: Formatted datetime string like "Jan 12, 19:59 EST"
+    """
+    tz = get_timezone_for_state(state)
+    local_dt = dt.astimezone(tz)
+
+    # Format: "Jan 12, 19:59 EST"
+    # %b = abbreviated month, %d = day, %H:%M = 24-hour time, %Z = timezone abbrev
+    return local_dt.strftime("%b %d, %H:%M %Z")
+
+
+def get_effective_delivery_time(
+    eta_iso: str,
+    appointment_iso: str,
+    delivery_state: Optional[str]
+) -> Tuple[Optional[str], Optional[str], Optional[float]]:
+    """
+    Get effective delivery time (later of GPS ETA or appointment)
+
+    Returns the effective time as ISO string, formatted string, and hours until.
+
+    Args:
+        eta_iso: GPS-based ETA timestamp
+        appointment_iso: Scheduled appointment time
+        delivery_state: Two-letter state code for timezone formatting
+
+    Returns:
+        Tuple of (eta_iso, eta_formatted, hours_until) or (None, None, None) if invalid
+    """
+    eta_dt = parse_iso_timestamp(eta_iso)
+    if not eta_dt:
+        return None, None, None
+
+    appointment_dt = parse_iso_timestamp(appointment_iso)
+
+    # Use the LATER of ETA or appointment time
+    if appointment_dt and appointment_dt > eta_dt:
+        effective_time = appointment_dt
+    else:
+        effective_time = eta_dt
+
+    # Calculate hours until
+    now = datetime.now(timezone.utc)
+    hours_until = round((effective_time - now).total_seconds() / 3600, 1)
+
+    # Format the effective time
+    eta_formatted = format_datetime_with_timezone(effective_time, delivery_state)
+
+    return effective_time.isoformat(), eta_formatted, hours_until
+
+
+def calculate_hours_until(eta_iso: str, appointment_iso: str = None) -> Optional[float]:
+    """
+    Calculate hours until delivery, using the LATER of ETA or appointment time
+
+    This prevents premature calls when truck is close but appointment is later.
+    Example: Truck 2 hours away, but appointment is tomorrow -> use tomorrow
+
+    Args:
+        eta_iso: GPS-based ETA timestamp (when truck will physically arrive)
+        appointment_iso: Scheduled appointment time (when delivery is expected)
+
+    Returns:
+        float: Hours until effective delivery time (rounded to 1 decimal) or None
+    """
+    eta_dt = parse_iso_timestamp(eta_iso)
+    if not eta_dt:
+        return None
+
+    appointment_dt = parse_iso_timestamp(appointment_iso)
+
+    # Use the LATER of ETA or appointment time
+    # If truck arrives early, they wait for appointment
+    # If truck is late, they deliver when they arrive
+    if appointment_dt and appointment_dt > eta_dt:
+        effective_time = appointment_dt
+    else:
+        effective_time = eta_dt
+
+    now = datetime.now(timezone.utc)
+    hours = (effective_time - now).total_seconds() / 3600
+    return round(hours, 1)
 
 
 def clean_driver_name(name: Optional[str]) -> Optional[str]:
@@ -370,17 +501,32 @@ def transform_shipment_for_webhook(shipment: Dict[str, Any], owner_info: Optiona
         print(f"⚠ Shipment {load_number}: No open delivery stop")
         return None
 
-    # Get ETA
+    # Get ETA and appointment time
     eta_to_stop = delivery_stop.get("etaToStop", {})
-    eta_value = eta_to_stop.get("etaValue")
-    eta_formatted = eta_to_stop.get("formattedEtaValue")
+    gps_eta_value = eta_to_stop.get("etaValue")
     miles_remaining = eta_to_stop.get("nextStopMiles")
 
-    if not eta_value:
+    # Get appointment time (scheduled delivery window)
+    appointment = delivery_stop.get("appointment", {})
+    appointment_start = appointment.get("date")  # Turvo uses "date" not "startDate"
+
+    if not gps_eta_value:
         print(f"⚠ Shipment {load_number}: No ETA available")
         return None
 
-    hours_until = calculate_hours_until(eta_value)
+    # Get delivery state for timezone formatting
+    delivery_address = delivery_stop.get("address", {})
+    delivery_state = delivery_address.get("state")
+
+    # Get effective delivery time (later of GPS ETA or appointment)
+    # This prevents premature calls when truck is close but appointment is later
+    eta_value, eta_formatted, hours_until = get_effective_delivery_time(
+        gps_eta_value, appointment_start, delivery_state
+    )
+
+    if not eta_value:
+        print(f"⚠ Shipment {load_number}: Could not parse ETA")
+        return None
 
     # Get driver info
     driver = extract_driver_info(shipment)
