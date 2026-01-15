@@ -521,15 +521,27 @@ def extract_owner_contact_info(user_details: Dict[str, Any]) -> Dict[str, Option
             last_name = name_parts[-1].lower()
             team_email = f"team{last_name}@motustrucking.com"
 
-    # Get primary phone
+    # Get team phone (prefer Fax type, which is the team line with extension)
     phones = user_details.get("phone", [])
-    primary_phone = next((p["number"] for p in phones if p.get("isPrimary")), None)
+    team_phone = None
+
+    # First, look for Fax type (team line)
+    for p in phones:
+        if p.get("deleted"):
+            continue
+        if p.get("type", {}).get("value") == "Fax":
+            team_phone = p.get("number")
+            break
+
+    # Fallback to primary if no Fax found
+    if not team_phone:
+        team_phone = next((p["number"] for p in phones if p.get("isPrimary") and not p.get("deleted")), None)
 
     return {
         "name": owner_name,
         "id": user_details.get("id"),
         "email": team_email,
-        "phone": primary_phone
+        "phone": team_phone
     }
 
 
