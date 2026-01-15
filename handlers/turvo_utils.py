@@ -11,6 +11,17 @@ from typing import Optional, Dict, Any, Tuple
 from zoneinfo import ZoneInfo
 
 
+# Timezone for overnight hours check (Motus office is EST)
+EST_TIMEZONE = ZoneInfo("America/New_York")
+
+# Overnight hours in EST (6 PM to 8 AM)
+OVERNIGHT_START_HOUR = 18  # 6 PM EST
+OVERNIGHT_END_HOUR = 8     # 8 AM EST
+
+# Late threshold in minutes
+LATE_THRESHOLD_MINUTES = 30
+
+
 # US State to Timezone mapping (primary timezone for each state)
 STATE_TO_TIMEZONE = {
     # Eastern Time
@@ -39,6 +50,51 @@ STATE_TO_TIMEZONE = {
     # Alaska & Hawaii
     "AK": "America/Anchorage", "HI": "Pacific/Honolulu",
 }
+
+
+def is_overnight_hours() -> bool:
+    """
+    Check if current time is overnight hours (6 PM - 8 AM EST)
+
+    Overnight = Motus office is closed, use monitoring-only logic
+
+    Returns:
+        bool: True if currently overnight (6 PM - 8 AM EST)
+    """
+    now_est = datetime.now(EST_TIMEZONE)
+    hour = now_est.hour
+
+    # Overnight is 6 PM (18:00) to 8 AM (08:00)
+    # This means: hour >= 18 OR hour < 8
+    return hour >= OVERNIGHT_START_HOUR or hour < OVERNIGHT_END_HOUR
+
+
+def is_driver_late(gps_eta_iso: str, appointment_iso: str) -> Tuple[bool, Optional[float]]:
+    """
+    Check if driver is more than 30 minutes late based on GPS ETA vs appointment
+
+    Args:
+        gps_eta_iso: GPS-based ETA timestamp
+        appointment_iso: Scheduled appointment time
+
+    Returns:
+        Tuple of (is_late, minutes_late) - minutes_late is None if not late or can't calculate
+    """
+    gps_dt = parse_iso_timestamp(gps_eta_iso)
+    appt_dt = parse_iso_timestamp(appointment_iso)
+
+    if not gps_dt or not appt_dt:
+        return False, None
+
+    # Calculate how late the driver is
+    # Late = GPS ETA is after appointment time
+    diff_seconds = (gps_dt - appt_dt).total_seconds()
+    minutes_late = diff_seconds / 60
+
+    if minutes_late > LATE_THRESHOLD_MINUTES:
+        return True, round(minutes_late, 1)
+
+    return False, None
 
 
 def find_delivery_stop(global_route: list) -> Optional[Dict[str, Any]]:
