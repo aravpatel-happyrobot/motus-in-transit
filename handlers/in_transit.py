@@ -36,37 +36,13 @@ ALLOWED_OWNER_IDS = os.getenv("ALLOWED_OWNER_IDS", "")  # Comma-separated IDs, e
 redis_client = redis.from_url(REDIS_URL) if REDIS_URL else None
 
 
-def get_overnight_date_key() -> str:
-    """
-    Get the date key for overnight deduplication
-
-    Overnight spans 6 PM to 8 AM, so:
-    - 6 PM - 11:59 PM on Jan 15 → "2026-01-15"
-    - 12 AM - 7:59 AM on Jan 16 → still "2026-01-15" (same overnight period)
-
-    Returns:
-        str: Date string for the overnight period (YYYY-MM-DD)
-    """
-    now_est = datetime.now(turvo_utils.EST_TIMEZONE)
-
-    # If it's after midnight but before 8 AM, we're still in "yesterday's" overnight
-    if now_est.hour < turvo_utils.OVERNIGHT_END_HOUR:
-        # Subtract a day to get the overnight period date
-        from datetime import timedelta
-        overnight_date = (now_est - timedelta(days=1)).date()
-    else:
-        overnight_date = now_est.date()
-
-    return overnight_date.isoformat()
-
-
 def check_already_called(shipment_id: int, call_type: str) -> bool:
     """
     Check if we've already made this specific call type for this shipment
 
     Args:
         shipment_id: Turvo shipment ID
-        call_type: "checkin", "final", or "late_check"
+        call_type: "checkin" or "final"
 
     Returns:
         bool: True if already called, False otherwise
@@ -74,45 +50,30 @@ def check_already_called(shipment_id: int, call_type: str) -> bool:
     if not redis_client:
         return False  # No Redis, can't check
 
-    # For late_check, include the overnight date so it resets each night
-    if call_type == "late_check":
-        overnight_date = get_overnight_date_key()
-        cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{overnight_date}:{shipment_id}"
-    else:
-        cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{shipment_id}"
-
+    cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{shipment_id}"
     return redis_client.get(cache_key) is not None
 
 
-def mark_as_called(shipment_id: int, load_number: str, call_type: str, minutes_late: float = None):
+def mark_as_called(shipment_id: int, load_number: str, call_type: str):
     """
     Mark specific call type as completed for this shipment
 
     Args:
         shipment_id: Turvo shipment ID
         load_number: Load number for logging
-        call_type: "checkin", "final", or "late_check"
-        minutes_late: For late_check, how many minutes late the driver was
+        call_type: "checkin" or "final"
     """
     if not redis_client:
         print(f"⚠ Redis not available, cannot mark {load_number} as called")
         return
 
-    # For late_check, include the overnight date so it resets each night
-    if call_type == "late_check":
-        overnight_date = get_overnight_date_key()
-        cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{overnight_date}:{shipment_id}"
-    else:
-        cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{shipment_id}"
+    cache_key = f"019b0e1e-f561-7a0a-97a4-11058661c03e:in_transit:{call_type}:{shipment_id}"
 
     cache_data = {
         "load_number": load_number,
         "call_type": call_type,
         "called_at": datetime.now(timezone.utc).isoformat()
     }
-
-    if minutes_late is not None:
-        cache_data["minutes_late"] = minutes_late
 
     ttl_seconds = REDIS_TTL_DAYS * 86400
     redis_client.set(cache_key, json.dumps(cache_data), ex=ttl_seconds)
@@ -230,7 +191,6 @@ def sync_in_transit() -> Dict[str, Any]:
         "2119",  # Tender - rejected
     ]
 
-    initial_count = len(shipments)
     shipments = [
         s for s in shipments
         if s.get("status", {}).get("code", {}).get("key") not in INVALID_STATUSES
@@ -252,14 +212,14 @@ def sync_in_transit() -> Dict[str, Any]:
         "final_already_called": 0,
         "final_triggered": 0,
         "final_outside_window": 0,
-        "late_check_not_late": 0,  # Overnight: drivers in checkin window but on-time (skipped)
+        "overnight_skipped": 0,  # Overnight: drivers in checkin window but on-time (skipped)
         "owner_filtered": 0,
         "no_eta": 0,
         "missing_data": 0,
     }
     errors = []
 
-    for i, shipment in enumerate(shipments, 1):
+    for shipment in shipments:
         shipment_id = shipment["id"]
         custom_id = shipment.get("customId", "Unknown")
 
@@ -281,7 +241,7 @@ def sync_in_transit() -> Dict[str, Any]:
             continue
 
         # Check owner filtering
-        is_allowed, owner_info = check_owner_allowed(details)
+        is_allowed, _ = check_owner_allowed(details)
         if not is_allowed:
             stats["owner_filtered"] += 1
             continue
@@ -345,7 +305,7 @@ def sync_in_transit() -> Dict[str, Any]:
                     else:
                         call_types_to_make.append("checkin")
                 else:
-                    stats["late_check_not_late"] += 1
+                    stats["overnight_skipped"] += 1
             else:
                 # BUSINESS HOURS: Always checkin
                 if checkin_called:
@@ -375,8 +335,7 @@ def sync_in_transit() -> Dict[str, Any]:
                 "shipment_id": shipment_id,
                 "load_number": custom_id,
                 "call_type": call_type,
-                "payload": call_payload,
-                "minutes_late": minutes_late if (call_type == "checkin" and is_overnight) else None
+                "payload": call_payload
             })
 
             if call_type == "checkin":
@@ -411,15 +370,14 @@ def sync_in_transit() -> Dict[str, Any]:
                 mark_as_called(
                     call["shipment_id"],
                     call["load_number"],
-                    call["call_type"],
-                    minutes_late=call.get("minutes_late")
+                    call["call_type"]
                 )
         else:
             errors.append({"error": "Batch webhook failed", "loads": [call["load_number"] for call in calls_to_make]})
 
     # Summary log
     if is_overnight:
-        print(f"SYNC COMPLETE | Mode: {mode} | Processed: {len(shipments)} | Filtered: {stats['owner_filtered']} | Checkin (late only): {stats['checkin_triggered']} | Final: {stats['final_triggered']} | Skipped (on-time): {stats['late_check_not_late']} | Errors: {len(errors)}")
+        print(f"SYNC COMPLETE | Mode: {mode} | Processed: {len(shipments)} | Filtered: {stats['owner_filtered']} | Checkin (late only): {stats['checkin_triggered']} | Final: {stats['final_triggered']} | Skipped (on-time): {stats['overnight_skipped']} | Errors: {len(errors)}")
     else:
         print(f"SYNC COMPLETE | Mode: {mode} | Processed: {len(shipments)} | Filtered: {stats['owner_filtered']} | Checkin: {stats['checkin_triggered']} | Final: {stats['final_triggered']} | Errors: {len(errors)}")
 
