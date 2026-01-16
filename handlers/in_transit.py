@@ -252,9 +252,7 @@ def sync_in_transit() -> Dict[str, Any]:
         "final_already_called": 0,
         "final_triggered": 0,
         "final_outside_window": 0,
-        "late_check_already_called": 0,
-        "late_check_triggered": 0,
-        "late_check_not_late": 0,
+        "late_check_not_late": 0,  # Overnight: drivers in checkin window but on-time (skipped)
         "owner_filtered": 0,
         "no_eta": 0,
         "missing_data": 0,
@@ -268,18 +266,12 @@ def sync_in_transit() -> Dict[str, Any]:
         # Check which call types have already been made
         checkin_called = check_already_called(shipment_id, "checkin")
         final_called = check_already_called(shipment_id, "final")
-        late_check_called = check_already_called(shipment_id, "late_check") if is_overnight else False
 
         # Skip if all applicable calls have been made
-        if is_overnight:
-            if late_check_called:
-                stats["late_check_already_called"] += 1
-                continue
-        else:
-            if checkin_called and final_called:
-                stats["checkin_already_called"] += 1
-                stats["final_already_called"] += 1
-                continue
+        if checkin_called and final_called:
+            stats["checkin_already_called"] += 1
+            stats["final_already_called"] += 1
+            continue
 
         # Get full details
         try:
@@ -329,35 +321,39 @@ def sync_in_transit() -> Dict[str, Any]:
         call_types_to_make = []
         minutes_late = None
 
-        if is_overnight:
-            # OVERNIGHT MODE: Only call if driver is 30+ minutes late
-            if gps_eta and appointment:
-                driver_is_late, minutes_late = turvo_utils.is_driver_late(gps_eta, appointment)
+        # Check if driver is late (for overnight checkin logic)
+        driver_is_late = False
+        if gps_eta and appointment:
+            driver_is_late, minutes_late = turvo_utils.is_driver_late(gps_eta, appointment)
+
+        # FINAL CALLS (0-30 min): ALWAYS trigger regardless of time of day
+        if CALL_WINDOW_2_MIN <= hours_until <= CALL_WINDOW_2_MAX:
+            if final_called:
+                stats["final_already_called"] += 1
+            else:
+                call_types_to_make.append("final")
+        else:
+            stats["final_outside_window"] += 1
+
+        # CHECKIN CALLS (3-4 hours): Depends on time of day
+        if CALL_WINDOW_1_MIN <= hours_until <= CALL_WINDOW_1_MAX:
+            if is_overnight:
+                # OVERNIGHT: Only checkin if driver is 30+ min late
                 if driver_is_late:
-                    call_types_to_make.append("late_check")
+                    if checkin_called:
+                        stats["checkin_already_called"] += 1
+                    else:
+                        call_types_to_make.append("checkin")
                 else:
                     stats["late_check_not_late"] += 1
             else:
-                stats["late_check_not_late"] += 1
-        else:
-            # BUSINESS HOURS MODE: Normal window logic
-            # Window 1: Check-in call (3-4 hours)
-            if CALL_WINDOW_1_MIN <= hours_until <= CALL_WINDOW_1_MAX:
+                # BUSINESS HOURS: Always checkin
                 if checkin_called:
                     stats["checkin_already_called"] += 1
                 else:
                     call_types_to_make.append("checkin")
-            else:
-                stats["checkin_outside_window"] += 1
-
-            # Window 2: Final call (0-30 min)
-            if CALL_WINDOW_2_MIN <= hours_until <= CALL_WINDOW_2_MAX:
-                if final_called:
-                    stats["final_already_called"] += 1
-                else:
-                    call_types_to_make.append("final")
-            else:
-                stats["final_outside_window"] += 1
+        else:
+            stats["checkin_outside_window"] += 1
 
         # Add calls to batch
         for call_type in call_types_to_make:
@@ -365,13 +361,13 @@ def sync_in_transit() -> Dict[str, Any]:
             call_payload = payload.copy()
             call_payload["call_type"] = call_type
 
-            # For late_check, add how late the driver is
-            if call_type == "late_check" and minutes_late:
+            # For overnight checkin calls, add how late the driver is
+            if call_type == "checkin" and is_overnight and minutes_late:
                 call_payload["minutes_late"] = minutes_late
 
             # Log calls that will be made
-            if call_type == "late_check":
-                print(f"  → LATE_CHECK call: {custom_id} | {payload['driver']['name']} | {minutes_late:.0f} min late | {payload['delivery']['location']['city']}, {payload['delivery']['location']['state']}")
+            if call_type == "checkin" and is_overnight and minutes_late:
+                print(f"  → CHECKIN call (LATE): {custom_id} | {payload['driver']['name']} | {minutes_late:.0f} min late | {payload['delivery']['location']['city']}, {payload['delivery']['location']['state']}")
             else:
                 print(f"  → {call_type.upper()} call: {custom_id} | {payload['driver']['name']} | {payload['delivery']['location']['city']}, {payload['delivery']['location']['state']} | ETA: {payload['delivery']['eta_formatted']}")
 
@@ -380,28 +376,24 @@ def sync_in_transit() -> Dict[str, Any]:
                 "load_number": custom_id,
                 "call_type": call_type,
                 "payload": call_payload,
-                "minutes_late": minutes_late if call_type == "late_check" else None
+                "minutes_late": minutes_late if (call_type == "checkin" and is_overnight) else None
             })
 
             if call_type == "checkin":
                 stats["checkin_triggered"] += 1
-            elif call_type == "final":
-                stats["final_triggered"] += 1
             else:
-                stats["late_check_triggered"] += 1
+                stats["final_triggered"] += 1
 
     # Step 3: Send all calls in one batch webhook
     if calls_to_make:
-        # Sort calls: late_check first (urgent), then reefer loads, then by hours_until
+        # Sort calls: reefer loads first, then by hours_until (most urgent first)
         calls_to_make.sort(key=lambda c: (
-            0 if c["call_type"] == "late_check" else 1,
             0 if c["payload"]["equipment"]["temperature"] is not None else 1,
             c["payload"]["delivery"]["hours_until"] or 999
         ))
 
         checkin_count = sum(1 for c in calls_to_make if c["call_type"] == "checkin")
         final_count = sum(1 for c in calls_to_make if c["call_type"] == "final")
-        late_check_count = sum(1 for c in calls_to_make if c["call_type"] == "late_check")
 
         # Prepare batch payload
         batch_payload = {
@@ -409,7 +401,6 @@ def sync_in_transit() -> Dict[str, Any]:
             "total_calls": len(calls_to_make),
             "checkin_calls": checkin_count,
             "final_calls": final_count,
-            "late_check_calls": late_check_count,
             "mode": mode,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
@@ -428,7 +419,7 @@ def sync_in_transit() -> Dict[str, Any]:
 
     # Summary log
     if is_overnight:
-        print(f"SYNC COMPLETE | Mode: {mode} | Processed: {len(shipments)} | Filtered: {stats['owner_filtered']} | Late Checks: {stats['late_check_triggered']} | On-Time: {stats['late_check_not_late']} | Errors: {len(errors)}")
+        print(f"SYNC COMPLETE | Mode: {mode} | Processed: {len(shipments)} | Filtered: {stats['owner_filtered']} | Checkin (late only): {stats['checkin_triggered']} | Final: {stats['final_triggered']} | Skipped (on-time): {stats['late_check_not_late']} | Errors: {len(errors)}")
     else:
         print(f"SYNC COMPLETE | Mode: {mode} | Processed: {len(shipments)} | Filtered: {stats['owner_filtered']} | Checkin: {stats['checkin_triggered']} | Final: {stats['final_triggered']} | Errors: {len(errors)}")
 
@@ -441,7 +432,6 @@ def sync_in_transit() -> Dict[str, Any]:
         "owner_filtered": stats["owner_filtered"],
         "checkin_calls": stats["checkin_triggered"],
         "final_calls": stats["final_triggered"],
-        "late_check_calls": stats["late_check_triggered"],
         "total_calls": len(calls_to_make),
         "errors": errors
     }
