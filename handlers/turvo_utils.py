@@ -291,7 +291,7 @@ def extract_driver_info(shipment: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """
     Extract driver name and phone from shipment
 
-    Takes the LAST driver in the list (most recent assignment)
+    Takes the LAST carrier order and LAST driver (most recent assignment)
 
     Args:
         shipment: Full shipment object
@@ -301,7 +301,8 @@ def extract_driver_info(shipment: Dict[str, Any]) -> Dict[str, Optional[str]]:
     """
     carrier_orders = shipment.get("carrierOrder", [])
 
-    for carrier_order in carrier_orders:
+    # Iterate in REVERSE to get the most recent carrier order first
+    for carrier_order in reversed(carrier_orders):
         # Skip deleted carrier assignments
         if carrier_order.get("deleted"):
             continue
